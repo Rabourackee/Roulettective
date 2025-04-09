@@ -90,6 +90,41 @@ async function sendToOpenAI(promptNew) {
 
 }
 
+// ===== ADDED 2025-04-08: New function to get story from GPT with game master system prompt =====
+async function getStoryFromGPT(promptNew, callback) {
+  try {
+    console.log("Sending story prompt to GPT...");
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a clever and slightly mysterious game master. " +
+            "You're hosting a game of lateral thinking puzzles (also known as 'situation puzzles' or 'yes/no riddles'). " +
+            "You present short, strange scenarios that hide an unexpected truth. The player can ask yes/no questions to figure it out. " +
+            "Only reply with 'yes', 'no', or 'irrelevant', unless the player is very close to the answer. " +
+            "If they're close, give a subtle hint. Once they've solved it or are extremely close, reveal the full story. " +
+            "Start the game with a puzzle involving an apple. Keep your tone engaging, curious, and slightly dramatic." +
+            "When you are describing the puzzle, write only the story and no need to respond in any way apart from the story."
+        },
+        {
+          "role": "user",
+          "content": promptNew
+        }
+      ]
+    });
+
+    let result = completion.choices[0].message.content;
+    console.log("Story received from GPT");
+    callback(result);
+  } catch (err) {
+    console.error("An error occurred while getting the story:", err);
+    callback("An error occurred while getting the story.");
+  }
+}
+// ===== END OF ADDITION 2025-04-08 =====
+
 
 
 
@@ -130,14 +165,33 @@ const sketch = p => {
   
 
 
-  ////////// P5.JS DRAW //////////
-  p.draw = function () {
+   ////////// P5.JS DRAW //////////
+   p.draw = function () {
 
     // Draw a text field to show text message retuned from OpenAI
     p.background(p.color('grey'));
     p.fill(p.color('black'));
     p.textSize(20);
-    p.text(textToShow, 70, 70);
+    
+    // ===== MODIFIED 2025-04-08: Improved text display with word wrapping =====
+    const maxWidth = 400;
+    const lineHeight = 25;
+    const words = textToShow.split(' ');
+    let line = '';
+    let y = 70;
+    
+    for (let i = 0; i < words.length; i++) {
+      const testLine = line + words[i] + ' ';
+      if (p.textWidth(testLine) > maxWidth) {
+        p.text(line, 50, y);
+        line = words[i] + ' ';
+        y += lineHeight;
+      } else {
+        line = testLine;
+      }
+    }
+    p.text(line, 50, y);
+    // ===== END OF MODIFICATION 2025-04-08 =====
 
     // Draw a square based on the color returned from OpenAI
     p.fill(p.color(generatedColor));
@@ -151,6 +205,7 @@ const sketch = p => {
 
   } // end draw
 
+
   
 ////////// P5.JS KEYBOARD INPUT //////////
   p.keyPressed = function () {
@@ -159,6 +214,15 @@ const sketch = p => {
     if (p.key === 'c') {
       sendToOpenAI("What is the color of the sky? Respond with RGB HEX code only. No explanations.");
     }
+
+    // ===== ADDED 2025-04-08: Get a story from GPT when 'r' key is pressed =====
+    if (p.key === 'r') {
+      textToShow = "Generating story...";
+      getStoryFromGPT("Start the game", (story) => {
+        textToShow = story;
+      });
+    }
+    // ===== END OF ADDITION 2025-04-08 =====
 
     // connect to serial port
     if (p.key === 's') {
