@@ -11,6 +11,22 @@ const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
 
 let openai;
 
+// @@@@@ 2025-04-08: Add message history to maintain conversation context @@@@@
+let messageHistory = [
+  {
+    role: "system",
+    content:
+      "You are a clever and slightly mysterious game master. " +
+      "You're hosting a game of lateral thinking puzzles (also known as 'situation puzzles' or 'yes/no riddles'). " +
+      "You present short, strange scenarios that hide an unexpected truth. The player can ask yes/no questions to figure it out. " +
+      "Only reply with 'yes', 'no', or 'irrelevant', unless the player is very close to the answer. " +
+      "If they're close, give a subtle hint. Once they've solved it or are extremely close, reveal the full story. " +
+      "Start the game with a puzzle involving an apple. Keep your tone engaging, curious, and slightly dramatic." +
+      "When you are describing the puzzle, write only the story and no need to respond in any way apart from the story."
+  }
+];
+// @@@@@ End of addition @@@@@
+
 // Keep all non-P5.js code outside of the sketch() function as much as possible.
 // This just makes things cleaner and enables you to break them out into
 // separate modules if need be. P5.js doesn't support modules without p. notation.
@@ -29,34 +45,62 @@ async function initializePromptInput (callback) {
         // Get the text from the text input element.
         const prompt = promptInput.value;
         
-        // Call the OpenAI API to get a completion from the prompt.
-        const completion = await chat(prompt);
+        // @@@@@ 2025-04-08: Update to use the message history @@@@@
+        // Add user message to history
+        messageHistory.push({
+          role: "user",
+          content: prompt
+        });
+        
+        // Call the OpenAI API with the full conversation history
+        const completion = await chatWithHistory();
+        
+        // Clear the input field
+        promptInput.value = "";
+        // @@@@@ End of modification @@@@@
+        
         callback(completion);
       } // end check for Enter
     }); // end addEventListener click
   } // end check for promptInput existence
 }
 
-
-// Sends a single prompt to the OpenAI completions API.
-async function chat (prompt) {
+// @@@@@ 2025-04-08: Modified to use message history @@@@@
+async function chatWithHistory() {
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
-      messages: [
-        {
-          "role": "user",
-          "content": prompt
-        }
-      ]
+      messages: messageHistory
     });
   
-    return completion.choices[0].message.content;
+    // Add assistant's response to history
+    const responseContent = completion.choices[0].message.content;
+    messageHistory.push({
+      role: "assistant",
+      content: responseContent
+    });
+    
+    return responseContent;
   } catch (err) {
     console.error("An error occurred in the chat function:", err);
     return "An error occurred."
   }
 }
+// @@@@@ End of modification @@@@@
+
+// @@@@@ 2025-04-08: Keep this function for backward compatibility @@@@@
+// Sends a single prompt to the OpenAI completions API.
+async function chat(prompt) {
+  // Add user message to history
+  messageHistory.push({
+    role: "user",
+    content: prompt
+  });
+  
+  // Use the shared function
+  return chatWithHistory();
+}
+// @@@@@ End of modification @@@@@
 
 
 /////////////// PROMPT FROM USER KEY PRESS //////////////////////
@@ -90,40 +134,54 @@ async function sendToOpenAI(promptNew) {
 
 }
 
-// ===== ADDED 2025-04-08: New function to get story from GPT with game master system prompt =====
+// @@@@@ 2025-04-08: Modified function to use shared message history @@@@@
 async function getStoryFromGPT(promptNew, callback) {
   try {
     console.log("Sending story prompt to GPT...");
+    
+    // Reset the message history to just the system message
+    messageHistory = [
+      {
+        role: "system",
+        content:
+          "You are a clever and slightly mysterious game master. " +
+          "You're hosting a game of lateral thinking puzzles (also known as 'situation puzzles' or 'yes/no riddles'). " +
+          "You present short, strange scenarios that hide an unexpected truth. The player can ask yes/no questions to figure it out. " +
+          "Only reply with 'yes', 'no', or 'irrelevant', unless the player is very close to the answer. " +
+          "If they're close, give a subtle hint. Once they've solved it or are extremely close, reveal the full story. " +
+          "Start the game with a puzzle involving an apple. Keep your tone engaging, curious, and slightly dramatic." +
+          "When you are describing the puzzle, write only the story and no need to respond in any way apart from the story."
+      }
+    ];
+    
+    // Add user's initial prompt to the history
+    messageHistory.push({
+      role: "user",
+      content: promptNew
+    });
+    
+    // Get completion using the shared history
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a clever and slightly mysterious game master. " +
-            "You're hosting a game of lateral thinking puzzles (also known as 'situation puzzles' or 'yes/no riddles'). " +
-            "You present short, strange scenarios that hide an unexpected truth. The player can ask yes/no questions to figure it out. " +
-            "Only reply with 'yes', 'no', or 'irrelevant', unless the player is very close to the answer. " +
-            "If they're close, give a subtle hint. Once they've solved it or are extremely close, reveal the full story. " +
-            "Start the game with a puzzle involving an apple. Keep your tone engaging, curious, and slightly dramatic." +
-            "When you are describing the puzzle, write only the story and no need to respond in any way apart from the story."
-        },
-        {
-          "role": "user",
-          "content": promptNew
-        }
-      ]
+      messages: messageHistory
     });
 
     let result = completion.choices[0].message.content;
     console.log("Story received from GPT");
+    
+    // Add assistant's response to the history
+    messageHistory.push({
+      role: "assistant",
+      content: result
+    });
+    
     callback(result);
   } catch (err) {
     console.error("An error occurred while getting the story:", err);
     callback("An error occurred while getting the story.");
   }
 }
-// ===== END OF ADDITION 2025-04-08 =====
+// @@@@@ End of modification @@@@@
 
 
 
@@ -208,40 +266,42 @@ const sketch = p => {
 
   
 ////////// P5.JS KEYBOARD INPUT //////////
-  p.keyPressed = function () {
+p.keyPressed = function () {
 
-    // Ask GPT for a color
-    if (p.key === 'c') {
-      sendToOpenAI("What is the color of the sky? Respond with RGB HEX code only. No explanations.");
-    }
+  // @@@@@ 2025-04-08: Changed key controls to non-standard keys to avoid chat conflicts @@@@@
+  // Ask GPT for a color - changed from 'c' to F1 key
+  if (p.keyCode === 112) { // F1 key
+    sendToOpenAI("What is the color of the sky? Respond with RGB HEX code only. No explanations.");
+  }
 
-    // ===== ADDED 2025-04-08: Get a story from GPT when 'r' key is pressed =====
-    if (p.key === 'r') {
-      textToShow = "Generating story...";
-      getStoryFromGPT("Start the game", (story) => {
-        textToShow = story;
-      });
-    }
-    // ===== END OF ADDITION 2025-04-08 =====
+  // Get a story from GPT - changed from 'r' to F2 key
+  if (p.keyCode === 113) { // F2 key
+    textToShow = "Generating story...";
+    getStoryFromGPT("Start the game", (story) => {
+      textToShow = story;
+    });
+  }
 
-    // connect to serial port
-    if (p.key === 's') {
-      port.open(9600);
-    //console.log(port);
-    }
+  // Connect to serial port - changed from 's' to F3 key
+  if (p.keyCode === 114) { // F3 key
+    port.open(9600);
+  }
 
-    // send serial data to Arduino to toggle LED
-    // LED high
-    if (p.key === 'h') {
-      port.write("H");
-    }
-    // LED low
-    if (p.key === 'l') {
-      port.write("L");
-    }
+  // Send serial data to Arduino to toggle LED
+  // LED high - changed from 'h' to F4 key
+  if (p.keyCode === 115) { // F4 key
+    port.write("H");
+  }
+  
+  // LED low - changed from 'l' to F5 key
+  if (p.keyCode === 116) { // F5 key
+    port.write("L");
+  }
+  // @@@@@ End of modification @@@@@
 
-  } // end keyPressed
+} // end keyPressed
 } // end sketch function
+
 
 
 // =====================================================================================
