@@ -20,12 +20,18 @@ let messageHistory = [
       "You're hosting a game of lateral thinking puzzles (also known as 'situation puzzles' or 'yes/no riddles'). " +
       "You present short, strange scenarios that hide an unexpected truth. The player can ask yes/no questions to figure it out. " +
       "Only reply with 'yes', 'no', or 'irrelevant', unless the player is very close to the answer. " +
-      "If they're close, give a subtle hint. Once they've solved it or are extremely close, reveal the full story. " +
-      "Start the game with a puzzle involving an apple. Keep your tone engaging, curious, and slightly dramatic." +
+      "If they're close enough or on the very right track, reveal the full story. " +
+      "Keep your tone engaging, curious, and slightly dramatic." +
+      "Keep a count of the total number of questions asked, if it reached 20, show that the user run out of question and reveal the full story directly." +
       "When you are describing the puzzle, write only the story and no need to respond in any way apart from the story."
   }
 ];
 // @@@@@ End of addition @@@@@
+
+// +++++ 2025-04-08: Add variables to separately store story and responses +++++
+let storyText = "";
+let responseText = "";
+// +++++ End of addition +++++
 
 // Keep all non-P5.js code outside of the sketch() function as much as possible.
 // This just makes things cleaner and enables you to break them out into
@@ -59,7 +65,10 @@ async function initializePromptInput (callback) {
         promptInput.value = "";
         // @@@@@ End of modification @@@@@
         
+        // +++++ 2025-04-08: Update only the response text, not the story +++++
+        responseText = completion;
         callback(completion);
+        // +++++ End of modification +++++
       } // end check for Enter
     }); // end addEventListener click
   } // end check for promptInput existence
@@ -134,10 +143,14 @@ async function sendToOpenAI(promptNew) {
 
 }
 
-// @@@@@ 2025-04-08: Modified function to use shared message history @@@@@
+// ======= 2025-04-08: Fixed bug where generating a new story doesn't properly clear old story =======
 async function getStoryFromGPT(promptNew, callback) {
   try {
     console.log("Sending story prompt to GPT...");
+    
+    // Clear the existing story and response immediately to prevent display issues
+    storyText = "";
+    responseText = "";
     
     // Reset the message history to just the system message
     messageHistory = [
@@ -148,8 +161,9 @@ async function getStoryFromGPT(promptNew, callback) {
           "You're hosting a game of lateral thinking puzzles (also known as 'situation puzzles' or 'yes/no riddles'). " +
           "You present short, strange scenarios that hide an unexpected truth. The player can ask yes/no questions to figure it out. " +
           "Only reply with 'yes', 'no', or 'irrelevant', unless the player is very close to the answer. " +
-          "If they're close, give a subtle hint. Once they've solved it or are extremely close, reveal the full story. " +
-          "Start the game with a puzzle involving an apple. Keep your tone engaging, curious, and slightly dramatic." +
+          "If they're close enough or on the very right track, reveal the full story. " +
+          "Keep your tone engaging, curious, and slightly dramatic." +
+          "Keep a count of the total number of questions asked, if it reached 20, show that the user run out of question and reveal the full story directly." +
           "When you are describing the puzzle, write only the story and no need to respond in any way apart from the story."
       }
     ];
@@ -175,13 +189,16 @@ async function getStoryFromGPT(promptNew, callback) {
       content: result
     });
     
+    // Set the new story
+    storyText = result;
+    
     callback(result);
   } catch (err) {
     console.error("An error occurred while getting the story:", err);
     callback("An error occurred while getting the story.");
   }
 }
-// @@@@@ End of modification @@@@@
+// ======= End of fix =======
 
 
 
@@ -231,25 +248,58 @@ const sketch = p => {
     p.fill(p.color('black'));
     p.textSize(20);
     
-    // ===== MODIFIED 2025-04-08: Improved text display with word wrapping =====
+    // +++++ 2025-04-08: Modified text display to show story and responses separately +++++
     const maxWidth = 400;
     const lineHeight = 25;
-    const words = textToShow.split(' ');
-    let line = '';
     let y = 70;
     
-    for (let i = 0; i < words.length; i++) {
-      const testLine = line + words[i] + ' ';
-      if (p.textWidth(testLine) > maxWidth) {
-        p.text(line, 50, y);
-        line = words[i] + ' ';
-        y += lineHeight;
-      } else {
-        line = testLine;
+    // Draw the story text (if available)
+    if (storyText) {
+      p.fill(p.color('black'));
+      p.textStyle(p.BOLD);
+      p.text("PUZZLE:", 50, y);
+      y += lineHeight;
+      
+      const storyWords = storyText.split(' ');
+      let line = '';
+      
+      for (let i = 0; i < storyWords.length; i++) {
+        const testLine = line + storyWords[i] + ' ';
+        if (p.textWidth(testLine) > maxWidth) {
+          p.text(line, 50, y);
+          line = storyWords[i] + ' ';
+          y += lineHeight;
+        } else {
+          line = testLine;
+        }
       }
+      p.text(line, 50, y);
+      y += lineHeight * 2;  // Add extra space between story and response
     }
-    p.text(line, 50, y);
-    // ===== END OF MODIFICATION 2025-04-08 =====
+    
+    // Draw the response text (if available)
+    if (responseText) {
+      p.fill(p.color('blue'));
+      p.textStyle(p.NORMAL);
+      p.text("RESPONSE:", 50, y);
+      y += lineHeight;
+      
+      const responseWords = responseText.split(' ');
+      let line = '';
+      
+      for (let i = 0; i < responseWords.length; i++) {
+        const testLine = line + responseWords[i] + ' ';
+        if (p.textWidth(testLine) > maxWidth) {
+          p.text(line, 50, y);
+          line = responseWords[i] + ' ';
+          y += lineHeight;
+        } else {
+          line = testLine;
+        }
+      }
+      p.text(line, 50, y);
+    }
+    // +++++ End of modification +++++
 
     // Draw a square based on the color returned from OpenAI
     p.fill(p.color(generatedColor));
@@ -264,39 +314,40 @@ const sketch = p => {
   } // end draw
 
 
-  
 ////////// P5.JS KEYBOARD INPUT //////////
 p.keyPressed = function () {
 
-  // @@@@@ 2025-04-08: Changed key controls to non-standard keys to avoid chat conflicts @@@@@
-  // Ask GPT for a color - changed from 'c' to F1 key
-  if (p.keyCode === 112) { // F1 key
+  // @@@@@ 2025-04-08: Changed to use Tab, [, ], and \ keys @@@@@
+  // Tab key (keyCode 9): Get a color from GPT (was 'c')
+  if (p.keyCode === 9) { // Tab key
     sendToOpenAI("What is the color of the sky? Respond with RGB HEX code only. No explanations.");
   }
 
-  // Get a story from GPT - changed from 'r' to F2 key
-  if (p.keyCode === 113) { // F2 key
+  // ======= 2025-04-08: Modified to properly handle story generation =======
+  // Left bracket [ key (keyCode 219): Get a story from GPT (was 'r')
+  if (p.keyCode === 219) { // [ key
+    // Clear both text displays when generating a new story
+    storyText = "";
+    responseText = "";
     textToShow = "Generating story...";
     getStoryFromGPT("Start the game", (story) => {
       textToShow = story;
     });
   }
+  // ======= End of modification =======
 
-  // Connect to serial port - changed from 's' to F3 key
-  if (p.keyCode === 114) { // F3 key
+  // Right bracket ] key (keyCode 221): Connect to serial port (was 's')
+  if (p.keyCode === 221) { // ] key
     port.open(9600);
   }
 
-  // Send serial data to Arduino to toggle LED
-  // LED high - changed from 'h' to F4 key
-  if (p.keyCode === 115) { // F4 key
+  // Backslash \ key (keyCode 220): LED high (was 'h')
+  if (p.keyCode === 220) { // \ key
     port.write("H");
   }
   
-  // LED low - changed from 'l' to F5 key
-  if (p.keyCode === 116) { // F5 key
-    port.write("L");
-  }
+  // Print the key code to the console for debugging
+  console.log("Key pressed: " + p.key + " (keyCode: " + p.keyCode + ")");
   // @@@@@ End of modification @@@@@
 
 } // end keyPressed
