@@ -33,6 +33,10 @@ let storyText = "";
 let responseText = "";
 // +++++ End of addition +++++
 
+// %%%%%% 2025-04-10: Add flag to prevent duplicate story generation %%%%%%
+let isGeneratingStory = false;
+// %%%%%% End of flag addition %%%%%%
+
 // Keep all non-P5.js code outside of the sketch() function as much as possible.
 // This just makes things cleaner and enables you to break them out into
 // separate modules if need be. P5.js doesn't support modules without p. notation.
@@ -44,7 +48,41 @@ async function initializePromptInput (callback) {
   const promptInput = document.getElementById('prompt-input');
   
   if (promptInput) {
+    // &&&&&& 2025-04-10: Add keydown event listener to the document to intercept special keys &&&&&&
+    document.addEventListener('keydown', function(event) {
+      // %%%%%% 2025-04-10: Add check to prevent duplicate key handling %%%%%%
+      // This is now only for Tab, ], and \ keys
+      // Do NOT handle [ key here, leave it for p5's keyPressed
+      if (event.keyCode === 9 || event.keyCode === 221 || event.keyCode === 220) {
+        event.preventDefault();
+        
+        // Log the intercepted key
+        console.log("Special key intercepted: " + event.key + " (keyCode: " + event.keyCode + ")");
+        
+        // Manually trigger the sketch's keyPressed function with the intercepted key
+        if (window.p5Instance && window.p5Instance.keyPressed) {
+          // Set the internal p5 keyCode for the instance
+          window.p5Instance._setProperty('keyCode', event.keyCode);
+          window.p5Instance._setProperty('key', event.key);
+          
+          // Call the keyPressed function
+          window.p5Instance.keyPressed();
+        } else {
+          console.log("p5 instance not accessible, cannot call keyPressed");
+        }
+      }
+      // %%%%%% End of key handling check %%%%%%
+    });
+    // &&&&&& End of special key interception &&&&&&
+    
     promptInput.addEventListener('keydown', async function (event) {
+      // &&&&&& 2025-04-10: Ignore special keys for text input &&&&&&
+      if (event.keyCode === 9 || event.keyCode === 219 || event.keyCode === 221 || event.keyCode === 220) {
+        event.preventDefault();
+        return; // Skip processing these keys for text input
+      }
+      // &&&&&& End of special key filtering &&&&&&
+      
       if (event.key === "Enter") {
         event.preventDefault();
         
@@ -144,7 +182,17 @@ async function sendToOpenAI(promptNew) {
 }
 
 // ======= 2025-04-08: Fixed bug where generating a new story doesn't properly clear old story =======
+// %%%%%% 2025-04-10: Modified to prevent duplicate story generation %%%%%%
 async function getStoryFromGPT(promptNew, callback) {
+  // Check if already generating a story
+  if (isGeneratingStory) {
+    console.log("Already generating a story, request ignored");
+    return;
+  }
+  
+  // Set flag to prevent duplicate calls
+  isGeneratingStory = true;
+  
   try {
     console.log("Sending story prompt to GPT...");
     
@@ -196,8 +244,12 @@ async function getStoryFromGPT(promptNew, callback) {
   } catch (err) {
     console.error("An error occurred while getting the story:", err);
     callback("An error occurred while getting the story.");
+  } finally {
+    // Always reset the flag when done, regardless of success or failure
+    isGeneratingStory = false;
   }
 }
+// %%%%%% End of duplicate prevention modification %%%%%%
 // ======= End of fix =======
 
 
@@ -218,6 +270,10 @@ const sketch = p => {
 
   let responseFromOpenAI; // variable to hold the color response from OpenAI API
 
+  // &&&&&& 2025-04-10: Store p5 instance globally for external access &&&&&&
+  window.p5Instance = p;
+  // &&&&&& End of p5 instance storage &&&&&&
+
   ////////// P5.JS SETUP //////////
   p.setup = function () {
 
@@ -233,124 +289,200 @@ const sketch = p => {
     port = p.createSerial();
     
     // Set up the canvas
-    p.createCanvas(500, 500);
+    p.createCanvas(1000, 1000);
 
 
   } // end setup
   
 
-
-   ////////// P5.JS DRAW //////////
-   p.draw = function () {
-
-    // Draw a text field to show text message retuned from OpenAI
-    p.background(p.color('grey'));
+// ---------- 2025-04-10: Fixed text rendering to properly handle newlines and prevent overlapping text ----------
+p.draw = function () {
+  // Clear background
+  p.background(p.color('grey'));
+  
+  // Set initial text properties
+  p.textSize(20);
+  
+  // Configure text wrapping parameters
+  const maxWidth = 900;       // Maximum width for text wrapping
+  const lineHeight = 30;      // Increased line height to prevent tight text
+  const paragraphGap = 20;    // Extra space between paragraphs (story & response)
+  let yPosition = 70;         // Starting y position for text
+  
+  // Draw colored square in top-left
+  p.fill(p.color(generatedColor));
+  p.rect(0, 0, 50, 50);
+  
+  // --------- Draw Story Text (if available) ---------
+  if (storyText && storyText.trim() !== "") {
+    // Draw section header
     p.fill(p.color('black'));
-    p.textSize(20);
+    p.textStyle(p.BOLD);
+    p.text("PUZZLE:", 50, yPosition);
+    yPosition += lineHeight;
     
-    // +++++ 2025-04-08: Modified text display to show story and responses separately +++++
-    const maxWidth = 400;
-    const lineHeight = 25;
-    let y = 70;
+    // Handle text with newlines by splitting into paragraphs first
+    let paragraphs = storyText.split('\n');
     
-    // Draw the story text (if available)
-    if (storyText) {
-      p.fill(p.color('black'));
-      p.textStyle(p.BOLD);
-      p.text("PUZZLE:", 50, y);
-      y += lineHeight;
+    // Process each paragraph separately
+    for (let para = 0; para < paragraphs.length; para++) {
+      if (paragraphs[para].trim() === '') {
+        // For empty paragraphs (just a newline), add some space
+        yPosition += lineHeight/2;
+        continue;
+      }
       
-      const storyWords = storyText.split(' ');
-      let line = '';
+      // Break paragraph text into words for wrapping
+      let words = paragraphs[para].split(' ');
+      let currentLine = '';
       
-      for (let i = 0; i < storyWords.length; i++) {
-        const testLine = line + storyWords[i] + ' ';
+      // Process each word for text wrapping
+      for (let i = 0; i < words.length; i++) {
+        let word = words[i];
+        let testLine = currentLine + word + ' ';
+        
+        // Check if adding the next word exceeds maxWidth
         if (p.textWidth(testLine) > maxWidth) {
-          p.text(line, 50, y);
-          line = storyWords[i] + ' ';
-          y += lineHeight;
+          // Draw the current line before it gets too long
+          p.text(currentLine, 50, yPosition);
+          // Start a new line with the current word
+          currentLine = word + ' ';
+          // Move down for the next line
+          yPosition += lineHeight;
         } else {
-          line = testLine;
+          // If not too wide, continue building current line
+          currentLine = testLine;
         }
       }
-      p.text(line, 50, y);
-      y += lineHeight * 2;  // Add extra space between story and response
+      
+      // Draw the final line of current paragraph
+      if (currentLine.trim() !== '') {
+        p.text(currentLine, 50, yPosition);
+        yPosition += lineHeight;
+      }
+      
+      // Small gap between paragraphs within the story
+      if (para < paragraphs.length - 1) {
+        yPosition += lineHeight/3;
+      }
     }
     
-    // Draw the response text (if available)
-    if (responseText) {
-      p.fill(p.color('blue'));
-      p.textStyle(p.NORMAL);
-      p.text("RESPONSE:", 50, y);
-      y += lineHeight;
-      
-      const responseWords = responseText.split(' ');
-      let line = '';
-      
-      for (let i = 0; i < responseWords.length; i++) {
-        const testLine = line + responseWords[i] + ' ';
-        if (p.textWidth(testLine) > maxWidth) {
-          p.text(line, 50, y);
-          line = responseWords[i] + ' ';
-          y += lineHeight;
-        } else {
-          line = testLine;
-        }
-      }
-      p.text(line, 50, y);
-    }
-    // +++++ End of modification +++++
-
-    // Draw a square based on the color returned from OpenAI
-    p.fill(p.color(generatedColor));
-    p.rect(0, 0, 50, 50);
-
-    // Read data from the serial port and if something available, print it to console
-    let str = port.read();
-    if (str.length > 0) {
-      console.log(str);
-    }
-
-  } // end draw
-
-
-////////// P5.JS KEYBOARD INPUT //////////
-p.keyPressed = function () {
-
-  // @@@@@ 2025-04-08: Changed to use Tab, [, ], and \ keys @@@@@
-  // Tab key (keyCode 9): Get a color from GPT (was 'c')
-  if (p.keyCode === 9) { // Tab key
-    sendToOpenAI("What is the color of the sky? Respond with RGB HEX code only. No explanations.");
-  }
-
-  // ======= 2025-04-08: Modified to properly handle story generation =======
-  // Left bracket [ key (keyCode 219): Get a story from GPT (was 'r')
-  if (p.keyCode === 219) { // [ key
-    // Clear both text displays when generating a new story
-    storyText = "";
-    responseText = "";
-    textToShow = "Generating story...";
-    getStoryFromGPT("Start the game", (story) => {
-      textToShow = story;
-    });
-  }
-  // ======= End of modification =======
-
-  // Right bracket ] key (keyCode 221): Connect to serial port (was 's')
-  if (p.keyCode === 221) { // ] key
-    port.open(9600);
-  }
-
-  // Backslash \ key (keyCode 220): LED high (was 'h')
-  if (p.keyCode === 220) { // \ key
-    port.write("H");
+    // Add extra space between story and response
+    yPosition += paragraphGap;
   }
   
-  // Print the key code to the console for debugging
-  console.log("Key pressed: " + p.key + " (keyCode: " + p.keyCode + ")");
-  // @@@@@ End of modification @@@@@
+  // --------- Draw Response Text (if available) ---------
+  if (responseText && responseText.trim() !== "") {
+    // Draw section header with different color
+    p.fill(p.color('blue'));
+    p.textStyle(p.NORMAL);
+    p.text("RESPONSE:", 50, yPosition);
+    yPosition += lineHeight;
+    
+    // Handle text with newlines by splitting into paragraphs first
+    let paragraphs = responseText.split('\n');
+    
+    // Process each paragraph separately
+    for (let para = 0; para < paragraphs.length; para++) {
+      if (paragraphs[para].trim() === '') {
+        // For empty paragraphs (just a newline), add some space
+        yPosition += lineHeight/2;
+        continue;
+      }
+      
+      // Break paragraph text into words for wrapping
+      let words = paragraphs[para].split(' ');
+      let currentLine = '';
+      
+      // Process each word for text wrapping
+      for (let i = 0; i < words.length; i++) {
+        let word = words[i];
+        let testLine = currentLine + word + ' ';
+        
+        // Check if adding the next word exceeds maxWidth
+        if (p.textWidth(testLine) > maxWidth) {
+          // Draw the current line before it gets too long
+          p.text(currentLine, 50, yPosition);
+          // Start a new line with the current word
+          currentLine = word + ' ';
+          // Move down for the next line
+          yPosition += lineHeight;
+        } else {
+          // If not too wide, continue building current line
+          currentLine = testLine;
+        }
+      }
+      
+      // Draw the final line of current paragraph
+      if (currentLine.trim() !== '') {
+        p.text(currentLine, 50, yPosition);
+        yPosition += lineHeight;
+      }
+      
+      // Small gap between paragraphs within the response
+      if (para < paragraphs.length - 1) {
+        yPosition += lineHeight/3;
+      }
+    }
+  }
+  
+  // Check for serial port data
+  let str = port.read();
+  if (str.length > 0) {
+    console.log(str);
+  }
+};
+// ---------- End of newline handling fix ----------
 
-} // end keyPressed
+
+  ////////// P5.JS KEYBOARD INPUT //////////
+  p.keyPressed = function () {
+    // &&&&&& 2025-04-10: Added debug to verify function is called &&&&&&
+    console.log("p5.keyPressed function called - Key: " + p.key + " (keyCode: " + p.keyCode + ")");
+    // &&&&&& End of debug addition &&&&&&
+
+    // @@@@@ 2025-04-08: Changed to use Tab, [, ], and \ keys @@@@@
+    // Tab key (keyCode 9): Get a color from GPT (was 'c')
+    if (p.keyCode === 9) { // Tab key
+      sendToOpenAI("What is the color of the sky? Respond with RGB HEX code only. No explanations.");
+    }
+
+    // ======= 2025-04-08: Modified to properly handle story generation =======
+    // %%%%%% 2025-04-10: Added handling for [ key specifically in the p5 context %%%%%%
+    // Left bracket [ key (keyCode 219): Get a story from GPT (was 'r')
+    if (p.keyCode === 219) { // [ key
+      console.log("Generating story from p5.keyPressed handler...");
+      // Clear both text displays when generating a new story
+      storyText = "";
+      responseText = "";
+      textToShow = "Generating story...";
+      getStoryFromGPT("Start the game", (story) => {
+        textToShow = story;
+      });
+    }
+    // %%%%%% End of [ key specific handling %%%%%%
+    // ======= End of modification =======
+
+    // Right bracket ] key (keyCode 221): Connect to serial port (was 's')
+    if (p.keyCode === 221) { // ] key
+      port.open(9600);
+    }
+
+    // Backslash \ key (keyCode 220): LED high (was 'h')
+    if (p.keyCode === 220) { // \ key
+      port.write("H");
+    }
+    
+    // Print the key code to the console for debugging
+    console.log("Key pressed handler complete: " + p.key + " (keyCode: " + p.keyCode + ")");
+    // @@@@@ End of modification @@@@@
+
+    // &&&&&& 2025-04-10: Return false for special keys to prevent default browser behavior &&&&&&
+    if (p.keyCode === 9 || p.keyCode === 219 || p.keyCode === 221 || p.keyCode === 220) {
+      return false;
+    }
+    // &&&&&& End of browser default prevention &&&&&&
+  } // end keyPressed
 } // end sketch function
 
 
