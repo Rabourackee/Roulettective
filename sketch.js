@@ -23,7 +23,7 @@ let messageHistory = [
       "If they're close enough or on the very right track, reveal the full story. " +
       "Keep your tone engaging, curious, and slightly dramatic." +
       "Keep a count of the total number of questions asked, if it reached 20, show that the user run out of question and reveal the full story directly." +
-      "When you are describing the puzzle, write only the story and no need to respond in any way apart from the story."
+      "When you are describing the puzzle, write only the story and no need to respond in any way apart from the story. No greetings or transitional sentences."
   }
 ];
 // @@@@@ End of addition @@@@@
