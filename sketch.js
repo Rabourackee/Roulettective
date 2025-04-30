@@ -47,24 +47,20 @@ const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
 
 let openai;
 
-// MODIFIED: 2025-04-14 14:05
+// MODIFIED: 2025-04-14 12:10
 // Game state object to keep track of the mystery progress
 const gameState = {
   currentStory: "",         // The current mystery story being told
   slidesUsed: [],           // Track which slides have been used
   previousResponses: [],    // Store AI responses to each slide
-  storyId: null,            // Unique identifier for the current story
-  currentTheme: null,       // Current theme assigned to this story
-  usedThemes: [],           // Themes that have already been used
   evidenceFound: 0,         // Count of evidence slides used
   charactersIntroduced: 0,  // Count of character slides used
   explorationsDone: 0,      // Count of exploration slides used
   storyStarted: false,      // Whether a story has been started with a Riddle Slide
-  allStories: {},           // Store all past stories by their ID
   gameMessage: "Welcome to the Mystery Projector! Press 'r' to insert a Riddle Slide and begin a new mystery."
 };
 
-// MODIFIED: 2025-04-14 13:12
+// MODIFIED: 2025-04-14 11:30
 // Slide commands mapped to keyboard commands
 const slideCommands = {
   r: "Riddle Slide",     // 'r' key for Riddle Slide
@@ -72,8 +68,7 @@ const slideCommands = {
   c: "Character Slide",  // 'c' key for Character Slide
   x: "Exploration Slide", // 'x' key for Exploration Slide
   v: "Reveal Slide",     // 'v' key for Reveal Slide
-  h: "Help",             // 'h' key for game help (not part of the original system)
-  n: "New Story"         // 'n' key to completely reset and start fresh (breaks any cross-story memory)
+  h: "Help"              // 'h' key for game help (not part of the original system)
 };
 
 // MODIFIED: 2025-04-14 12:15
@@ -173,18 +168,11 @@ Each keyword corresponds to a physical slide inserted by the player. You must re
 
 - Keep everything **in-world** and **immersive**. You are not a chatbot or narrator. You are the intelligence inside the device.
 - Storytelling should feel cinematic, progressive, and well-paced. Let the mystery build gradually.
-Each new mystery should have a **unique genre, atmosphere, and conceptual hook** (e.g., occult, psychological, folk horror, time loops, lost memory, domestic crime, etc.).
-- Overall the story should be a mystery and detective that is intriguing and appealing enough for the player to wonder the reason behind the story.
-- Most mysteries should be involved with murders and criminal affairs. 
-- Don't be too fantasy and unrealistic, make the setting to be more realistic. Don't be too poetic in the description and settings.  
-- Avoid repetition across stories. Switch topics and elements between stories. Same type of place, same type of work, same items and same names should NOT appear in different stories.
+- Ensure each story has a **distinct genre and mood**: one may be folklore, another time-travel, another a domestic crime or cult mystery.
+- Avoid repetition across stories (e.g., don't overuse science experiments or memory loss).
 - Only allow a successful Reveal when the player has uncovered enough evidence and context.
 - Do not repeat information from previous slides. Keep each slide fresh.
 - Do not allow the player to skip ahead too quickly; deny early "Reveal" attempts when appropriate.
-- Don't make the initial riddle too long, keep it concise and clear, keep it for about 3 sentence and 40 words. 
-- When starting a new mystery (after "Riddle Slide"), avoid repeating previous settings. Vary the location, time period, victim profession, and cause of death. Randomize genre and setting across different mysteries.
-
-
 
 ---
 
@@ -269,7 +257,7 @@ You respond:
   }
 }
 
-// MODIFIED: 2025-04-14 13:30
+// MODIFIED: 2025-04-14 11:38
 // Functions to handle specific slide commands
 async function insertRiddleSlide() {
   return sendSlideCommand("r");
@@ -289,10 +277,6 @@ async function insertExplorationSlide() {
 
 async function insertRevealSlide() {
   return sendSlideCommand("v");
-}
-
-async function startNewStory() {
-  return sendSlideCommand("n");
 }
 
 async function showHelp() {
@@ -343,7 +327,7 @@ const sketch = p => {
     drawProjectorInterface();
   } // end setup
   
-  // MODIFIED: 2025-04-14 13:35
+  // MODIFIED: 2025-04-14 12:20
   // Function to display the projector interface
   function drawProjectorInterface() {
     // Create a dark background like a dimly lit room
@@ -380,16 +364,10 @@ const sketch = p => {
     p.textSize(14);
     p.text("Slides Used: " + (gameState.slidesUsed.length > 0 ? gameState.slidesUsed.join(" → ") : "None"), 100, p.height - 70);
     
-    // Add an indicator for story number if we have past stories
-    const storyCount = Object.keys(gameState.allStories).length + (gameState.storyStarted ? 1 : 0);
-    if (storyCount > 1) {
-      p.text(`Story #${storyCount}`, p.width - 150, p.height - 70);
-    }
-    
     // Draw command help
     p.fill(180, 180, 160);
     p.textSize(14);
-    const commands = "[R]iddle [E]vidence [C]haracter e[X]ploration re[V]eal [N]ew [H]elp";
+    const commands = "[R]iddle [E]vidence [C]haracter e[X]ploration re[V]eal [H]elp";
     p.text(commands, p.width/2 - p.textWidth(commands)/2, p.height - 30);
   }
 
@@ -412,11 +390,11 @@ const sketch = p => {
     }
   } // end draw
 
-  // MODIFIED: 2025-04-14 13:25
+  // MODIFIED: 2025-04-14 11:50
   ////////// P5.JS KEYBOARD INPUT //////////
   p.keyPressed = function () {
     // Add slide projector sound effect (commented out as placeholder)
-    // if (slideSound && ["r", "e", "c", "x", "v", "n"].includes(p.key.toLowerCase())) {
+    // if (slideSound && ["r", "e", "c", "x", "v"].includes(p.key.toLowerCase())) {
     //   slideSound.play();
     // }
     
@@ -436,9 +414,6 @@ const sketch = p => {
         break;
       case 'v': // Reveal Slide
         insertRevealSlide();
-        break;
-      case 'n': // New Story - completely breaks any cross-story memory
-        startNewStory();
         break;
       case 'h': // Help
         showHelp();
