@@ -1,767 +1,88 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mystery Slide Projector</title>
-  <style>
-    /* Styling for the mystery game */
-    body {
-      background-color: #0a0a0f;
-      color: #e5e5e5;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      margin: 0;
-      padding: 20px;
-      display: flex;
-      justify-content: center;
-      min-height: 100vh;
-    }
-    
-    .container {
-      width: 100%;
-      max-width: 900px;
-    }
-    
-    .slide-display {
-      background-color: #f0ebe3;
-      color: #121212;
-      padding: 30px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      min-height: 300px;
-      position: relative;
-      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
-      transition: all 0.3s ease;
-    }
-    
-    .slide-content {
-      font-size: 18px;
-      line-height: 1.6;
-      white-space: pre-wrap;
-    }
-    
-    .slide-indicator {
-      margin-top: 10px;
-      font-size: 14px;
-      color: #c8a973;
-    }
-    
-    .instructions-bar {
-      background-color: #465362;
-      color: #e5e5e5;
-      padding: 15px;
-      border-radius: 8px;
-      margin-top: 20px;
-      text-align: center;
-      font-size: 16px;
-    }
-    
-    .keyboard-guide {
-      margin-top: 20px;
-      padding: 15px;
-      background-color: #19191f;
-      border-radius: 8px;
-    }
-    
-    .key-row {
-      display: flex;
-      justify-content: center;
-      margin-bottom: 10px;
-      gap: 10px;
-    }
-    
-    .key {
-      background-color: #333;
-      color: white;
-      padding: 10px 15px;
-      border-radius: 5px;
-      text-align: center;
-      min-width: 30px;
-      box-shadow: 0 3px 0 #111;
-      display: inline-block;
-      user-select: none;
-      cursor: pointer;
-      transition: all 0.1s ease;
-    }
-    
-    .key:active {
-      transform: translateY(3px);
-      box-shadow: 0 0 0 #111;
-    }
-    
-    .key-label {
-      font-size: 12px;
-      margin-top: 5px;
-      color: #aaa;
-      text-align: center;
-      user-select: none;
-    }
-    
-    .key.slide-key {
-      background-color: #7768ae;
-    }
-    
-    .key.nav-key {
-      background-color: #3a4a5e;
-    }
-    
-    .key.number-key {
-      background-color: #a65e44;
-    }
-    
-    .key.pressed {
-      transform: translateY(3px);
-      box-shadow: 0 0 0 #111;
-    }
-    
-    .slide-display.changing {
-      animation: slide-change 0.3s ease-in-out;
-    }
-    
-    @keyframes slide-change {
-      0% { opacity: 1; transform: translateX(0); }
-      50% { opacity: 0.7; transform: translateX(5px); }
-      100% { opacity: 1; transform: translateX(0); }
-    }
-    
-    .theory {
-      background-color: rgba(255, 255, 255, 0.5);
-      padding: 10px;
-      margin: 10px 0;
-      border-radius: 5px;
-    }
-    
-    .reveal-input {
-      margin-top: 20px;
-      display: none;
-    }
-    
-    .reveal-input.active {
-      display: block;
-    }
-    
-    .answer-buttons {
-      display: flex;
-      justify-content: center;
-      gap: 10px;
-      margin-top: 10px;
-    }
-    
-    .answer-btn {
-      padding: 8px 15px;
-      background-color: #a65e44;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    
-    .answer-btn:hover {
-      background-color: #c17a61;
-    }
-  </style>
+  <title>分层推理解谜游戏</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="container">
-    <!-- Slide display area -->
-    <div class="slide-display" id="slide-display">
-      <div class="slide-content" id="slide-content">
-        Welcome to the Mystery Solver! Press M to begin a new mystery.
+  <div class="app-container">
+    <header>
+      <h1>分层推理解谜游戏</h1>
+      <div class="app-status">
+        <div id="connection-status">API就绪</div>
+        <div id="game-phase">阶段: 等待新谜题</div>
       </div>
-      <div class="slide-indicator" id="slide-indicator">
-        No slides yet
-      </div>
-    </div>
-    
-    <!-- Instructions bar -->
-    <div class="instructions-bar" id="instructions-bar">
-      Use your keyboard to navigate the mystery.
-    </div>
-    
-    <!-- Reveal input area (hidden by default) -->
-    <div class="reveal-input" id="reveal-input">
-      <div class="answer-buttons">
-        <button class="answer-btn" id="answer-1">1</button>
-        <button class="answer-btn" id="answer-2">2</button>
-        <button class="answer-btn" id="answer-3">3</button>
-        <button class="answer-btn" id="answer-4">4</button>
-        <button class="answer-btn" id="answer-5">5</button>
-      </div>
-    </div>
-    
-    <!-- Keyboard guide -->
-    <div class="keyboard-guide">
-      <h3>Keyboard Controls</h3>
-      
-      <div class="key-row">
-        <div class="key slide-key" id="key-m">M</div>
-        <div class="key slide-key" id="key-e">E</div>
-        <div class="key slide-key" id="key-c">C</div>
-        <div class="key slide-key" id="key-l">L</div>
-        <div class="key slide-key" id="key-a">A</div>
-        <div class="key slide-key" id="key-r">R</div>
-      </div>
-      <div class="key-row">
-        <div class="key-label">Mystery</div>
-        <div class="key-label">Evidence</div>
-        <div class="key-label">Character</div>
-        <div class="key-label">Location</div>
-        <div class="key-label">Action</div>
-        <div class="key-label">Reveal</div>
-      </div>
-      
-      <div class="key-row" style="margin-top: 20px;">
-        <div class="key nav-key" id="key-f">F</div>
-        <div class="key nav-key" id="key-b">B</div>
-        <div class="key nav-key" id="key-t">T</div>
-      </div>
-      <div class="key-row">
-        <div class="key-label">Forward</div>
-        <div class="key-label">Back</div>
-        <div class="key-label">Return</div>
-      </div>
-      
-      <div class="key-row" style="margin-top: 20px;">
-        <div class="key number-key" id="key-1">1</div>
-        <div class="key number-key" id="key-2">2</div>
-        <div class="key number-key" id="key-3">3</div>
-        <div class="key number-key" id="key-4">4</div>
-        <div class="key number-key" id="key-5">5</div>
-      </div>
-      <div class="key-row">
-        <div class="key-label">Answer</div>
-        <div class="key-label">Answer</div>
-        <div class="key-label">Answer</div>
-        <div class="key-label">Answer</div>
-        <div class="key-label">Answer</div>
-      </div>
-    </div>
-  </div>
+    </header>
 
-  <script>
-    // Game data and pre-written mysteries
-    const mysteries = [
-      {
-        title: "The Locked Room Death",
-        setup: "A businessman is found dead in his office. The door was locked from inside, windows sealed. Security cameras show no one entered or left, yet his computer indicates someone sent emails hours after estimated time of death.",
-        evidence: [
-          "A coffee cup with traces of an unknown substance. Lab results indicate the presence of a strong sedative.",
-          "The victim's smartphone shows unusual activity at 2:15 AM, five hours after his estimated time of death.",
-          "Scratch marks found near the office ventilation grate. The grate appears to have been removed and replaced recently."
-        ],
-        characters: [
-          "Janet Ross, the victim's secretary. Impeccable work record, but financial records show recent large deposits to her account. Claims she left at 5pm and never returned.",
-          "Michael Chen, IT administrator with access to all building systems. Recently denied promotion by the victim. No alibi for the night in question.",
-          "Dr. Eliza Winters, company scientist developing a revolutionary energy source. Had a heated argument with the victim the day of his death."
-        ],
-        locations: [
-          "The office - 14th floor of a secure building. Keycard access only, with cameras in hallways. The victim's office has a separate keypad lock that logs all entries.",
-          "The building's server room - Only accessible to IT staff and executives. Contains remote access to all company computers and security systems.",
-          "The building's ventilation system - A complex network that connects all offices. Maintenance access panels are located in the janitorial closets on each floor."
-        ],
-        actions: [
-          "You examine the building's ventilation system and discover an access point that connects to the victim's office. Dust patterns suggest recent disturbance.",
-          "You recover deleted security footage showing the janitor entering the IT room at midnight, hours after his shift ended.",
-          "You find trace evidence that the victim's coffee was laced with a chemical that would have induced a death-like state for several hours."
-        ],
-        reveal: {
-          theories: [
-            "The victim was drugged into unconsciousness, not killed immediately.",
-            "The janitor was bribed to help access the server room.",
-            "Someone used the ventilation system to enter the locked office.",
-            "The secretary was blackmailed, not paid, to provide access codes.",
-            "The victim was already dead when the emails were sent from his computer."
-          ],
-          falseStatement: 5,
-          correctEnding: "Your investigation reveals the truth: The victim wasn't immediately killed - he was drugged into a death-like state with a compound developed by Dr. Winters. While unconscious, the janitor (bribed by Michael Chen) provided access to the server room where Chen disabled security cameras. Chen then entered through the ventilation system, finished off the victim, sent emails from the victim's computer to establish a later time of death, and exited the same way - making it appear like a locked room mystery. Janet Ross was indeed blackmailed to provide the office access codes. The medical examiner missed the true time of death due to the unusual compound used.",
-          wrongEnding: "Based on your flawed conclusion, authorities arrest the secretary for the murder, believing she must have had an accomplice who helped after the death. The case seems resolved until six months later when the exact same MO is used in another killing. The true perpetrators—Michael Chen working with Dr. Winters—were never caught, and they continue their criminal partnership, eliminating anyone who threatens their corporate espionage operation."
-        }
-      },
-      {
-        title: "The Vanishing Actress",
-        setup: "Famous actress Lena Cartwright disappears during a remote island film shoot. Her locked cabin shows signs of a struggle, but all boats remain docked and the island's single helicopter didn't fly that night. A cryptic message was found written in lipstick on her mirror.",
-        evidence: [
-          "A torn page from Lena's script with strange annotations in the margins. The scene described involves her character faking her own death.",
-          "A burner phone found hidden in the ceiling panel of her cabin, with only one contact listed as 'M'.",
-          "Security footage showing Lena arguing with the film's producer the night before her disappearance. The audio is missing."
-        ],
-        characters: [
-          "Marcus Reed, the ambitious director whose career hangs on this film's success. Claims he was editing footage all night during Lena's disappearance.",
-          "Olivia Kent, Lena's understudy who would take the leading role if Lena cannot continue. Recently fired from another production for sabotage.",
-          "Detective James Cooper, investigating officer who seems unusually interested in the film's financial backers."
-        ],
-        locations: [
-          "Lena's cabin - Signs of struggle, broken glass, and the cryptic mirror message reading 'SCENE 42 IS REAL'.",
-          "The island's sea caves - Extensive network that local legends say connect to hidden coves. Some parts only accessible during low tide.",
-          "The film set - An elaborate mansion façade built specifically for this production. Contains numerous trap doors and hidden passages."
-        ],
-        actions: [
-          "You discover an underwater breathing apparatus hidden in the film's prop department, recently used.",
-          "You decode Lena's mirror message - Scene 42 in the script describes a character using sea caves to fake their own disappearance.",
-          "Local fishermen report seeing lights at sea the night of the disappearance, despite the storm conditions."
-        ],
-        reveal: {
-          theories: [
-            "Lena staged her own disappearance following the script.",
-            "The director Marcus Reed is involved in the conspiracy.",
-            "Detective Cooper is actually working for Lena's rivals.",
-            "Lena escaped through the sea caves during low tide.",
-            "The understudy Olivia Kent orchestrated the disappearance."
-          ],
-          falseStatement: 3,
-          correctEnding: "The truth is revealed: Lena Cartwright staged her own disappearance as a publicity stunt for the movie, following almost exactly the plot from Scene 42. Director Marcus Reed was her accomplice, helping plan and execute the fake abduction. The detective wasn't working for rivals, but was actually investigating the film's financial backing, which was coming from questionable sources. Lena didn't escape through sea caves at low tide - she used the breathing apparatus to swim to a waiting boat during high tide when the caves were inaccessible, creating the perfect alibi. The understudy was innocent - just an ambitious actress in the wrong place at the wrong time.",
-          wrongEnding: "Based on your incorrect conclusion, the investigation focuses on the island's sea caves, with resources wasted on extensive searches during low tide. Meanwhile, Lena Cartwright reappears three weeks later, claiming she was kidnapped by obsessed fans. The movie generates record publicity and becomes a blockbuster hit. Years later, a memoir by one of the crew reveals the truth: it was all a publicity stunt orchestrated by Lena and the director, using high tide and diving equipment to create the perfect mystery. Your failure to identify the key clues allowed the deception to succeed completely."
-        }
-      }
-    ];
-    
-    // Game state
-    const gameState = {
-      currentMystery: null,     // The currently active mystery
-      slidesUsed: [],           // Slide types in order of use
-      slideContents: [],        // Content for each slide
-      currentSlideIndex: -1,    // Current position in slide history
-      associationChain: [],     // For tracking association chain depths
-      associationLevel: 0,      // Current association level
-      gameStage: "initial",     // Game stage (initial, main, reveal, ending)
-      correctAnswer: null,      // The correct answer for reveal stage
-      waitingForSlideType: null // If waiting to insert a specific slide
-    };
-    
-    // DOM element references
-    const slideContent = document.getElementById('slide-content');
-    const slideIndicator = document.getElementById('slide-indicator');
-    const instructionsBar = document.getElementById('instructions-bar');
-    const slideDisplay = document.getElementById('slide-display');
-    const revealInput = document.getElementById('reveal-input');
-    
-    // Initialize game
-    function init() {
-      // Set up keyboard listener
-      document.addEventListener('keydown', handleKeyPress);
-      
-      // Set up click handlers for virtual keyboard
-      setupVirtualKeyboard();
-      
-      // Set up answer buttons
-      setupAnswerButtons();
-    }
-    
-    // Handle physical keyboard presses
-    function handleKeyPress(event) {
-      const key = event.key.toLowerCase();
-      
-      // Skip if in an input field
-      if (event.target.tagName.toLowerCase() === 'input' || 
-          event.target.tagName.toLowerCase() === 'textarea') {
-        return;
-      }
-      
-      // Show key press animation
-      const keyElement = document.getElementById(`key-${key}`);
-      if (keyElement) {
-        keyElement.classList.add('pressed');
-        setTimeout(() => keyElement.classList.remove('pressed'), 100);
-      }
-      
-      // Handle keys
-      switch(key) {
-        // Slide types
-        case 'm': handleMysterySlide(); break;
-        case 'e': handleEvidenceSlide(); break;
-        case 'c': handleCharacterSlide(); break;
-        case 'l': handleLocationSlide(); break;
-        case 'a': handleActionSlide(); break;
-        case 'r': handleRevealSlide(); break;
+    <main>
+      <div class="case-viewer">
+        <div class="case-card" id="case-card">
+          <div class="loading-overlay" id="loading-overlay">
+            <div class="spinner"></div>
+            <div class="loading-message" id="loading-message">处理中...</div>
+          </div>
+          <div class="card-header">
+            <div class="slide-indicator" id="slide-indicator">欢迎</div>
+            <div class="insight-badge" id="insight-badge">新洞察</div>
+          </div>
+          <div class="card-content" id="card-content">
+            <p>欢迎使用分层推理解谜游戏。</p>
+            <p>按下 <kbd>M</kbd> 键开始一个新的谜题调查。</p>
+            <p>每个谜题都包含隐藏的真相层次，随着调查的深入将逐步揭示。</p>
+          </div>
+          <div class="reveal-panel" id="reveal-panel">
+            <div class="theories">
+              <button class="theory-btn" data-theory="1">理论 1</button>
+              <button class="theory-btn" data-theory="2">理论 2</button>
+              <button class="theory-btn" data-theory="3">理论 3</button>
+              <button class="theory-btn" data-theory="4">理论 4</button>
+              <button class="theory-btn" data-theory="5">理论 5</button>
+            </div>
+            <div class="theory-prompt">哪个理论是错误的？</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls-panel">
+        <div class="instruction-bar" id="instruction-bar">
+          按下 <kbd>M</kbd> 键开始一个新的谜题案例
+        </div>
         
-        // Navigation
-        case 'f': handleForward(); break;
-        case 'b': handleBack(); break;
-        case 't': handleReturn(); break;
+        <div class="control-section">
+          <h3>调查控制</h3>
+          <div class="control-buttons">
+            <button id="btn-mystery" class="control-btn mystery-btn">M<span>谜题</span></button>
+            <button id="btn-evidence" class="control-btn evidence-btn">E<span>证据</span></button>
+            <button id="btn-character" class="control-btn character-btn">C<span>人物</span></button>
+            <button id="btn-location" class="control-btn location-btn">L<span>地点</span></button>
+            <button id="btn-action" class="control-btn action-btn">A<span>行动</span></button>
+            <button id="btn-reveal" class="control-btn reveal-btn">R<span>揭示</span></button>
+          </div>
+        </div>
         
-        // Answer
-        case '1': case '2': case '3': case '4': case '5':
-          if (gameState.gameStage === "reveal") {
-            handleAnswer(parseInt(key));
-          }
-          break;
-      }
-    }
-    
-    // Set up the virtual keyboard
-    function setupVirtualKeyboard() {
-      // Slide keys
-      document.getElementById('key-m').addEventListener('click', handleMysterySlide);
-      document.getElementById('key-e').addEventListener('click', handleEvidenceSlide);
-      document.getElementById('key-c').addEventListener('click', handleCharacterSlide);
-      document.getElementById('key-l').addEventListener('click', handleLocationSlide);
-      document.getElementById('key-a').addEventListener('click', handleActionSlide);
-      document.getElementById('key-r').addEventListener('click', handleRevealSlide);
-      
-      // Navigation keys
-      document.getElementById('key-f').addEventListener('click', handleForward);
-      document.getElementById('key-b').addEventListener('click', handleBack);
-      document.getElementById('key-t').addEventListener('click', handleReturn);
-      
-      // Number keys
-      for (let i = 1; i <= 5; i++) {
-        document.getElementById(`key-${i}`).addEventListener('click', () => {
-          if (gameState.gameStage === "reveal") {
-            handleAnswer(i);
-          }
-        });
-      }
-    }
-    
-    // Set up answer buttons
-    function setupAnswerButtons() {
-      for (let i = 1; i <= 5; i++) {
-        document.getElementById(`answer-${i}`).addEventListener('click', () => {
-          if (gameState.gameStage === "reveal") {
-            handleAnswer(i);
-          }
-        });
-      }
-    }
-    
-    // Handle Mystery slide
-    function handleMysterySlide() {
-      // If already in a mystery, confirm reset
-      if (gameState.currentMystery && gameState.slidesUsed.length > 0) {
-        if (!confirm("Starting a new mystery will reset your current progress. Continue?")) {
-          return;
-        }
-      }
-      
-      // Reset game state
-      resetGameState();
-      
-      // Select a random mystery
-      const randomIndex = Math.floor(Math.random() * mysteries.length);
-      gameState.currentMystery = mysteries[randomIndex];
-      
-      // Create first slide
-      createSlide("Mystery Slide", gameState.currentMystery.setup);
-      
-      // Update game stage
-      gameState.gameStage = "main";
-    }
-    
-    // Handle Evidence slide
-    function handleEvidenceSlide() {
-      if (!canCreateNewSlide()) return;
-      
-      // Check if we have evidence left
-      if (gameState.currentMystery && 
-          gameState.slidesUsed.filter(slide => slide === "Evidence Slide").length < gameState.currentMystery.evidence.length) {
+        <div class="control-section">
+          <h3>导航控制</h3>
+          <div class="nav-buttons">
+            <button id="btn-back" class="nav-btn"><span>⯇</span>后退 (B)</button>
+            <button id="btn-forward" class="nav-btn">前进 (F)<span>⯈</span></button>
+            <button id="btn-return" class="nav-btn"><span>⟲</span>返回 (T)</button>
+          </div>
+        </div>
         
-        // Get the next evidence
-        const evidenceIndex = gameState.slidesUsed.filter(slide => slide === "Evidence Slide").length;
-        const evidence = gameState.currentMystery.evidence[evidenceIndex];
-        
-        // Create slide
-        createSlide("Evidence Slide", evidence);
-      } else {
-        // No more evidence
-        showNotification("No more evidence can be found.");
-      }
-    }
+        <div class="depth-indicator" id="depth-indicator">
+          <div class="depth-label">洞察深度:</div>
+          <div class="depth-level" id="depth-level">0</div>
+        </div>
+      </div>
+    </main>
     
-    // Handle Character slide
-    function handleCharacterSlide() {
-      if (!canCreateNewSlide()) return;
-      
-      // Check if we have characters left
-      if (gameState.currentMystery && 
-          gameState.slidesUsed.filter(slide => slide === "Character Slide").length < gameState.currentMystery.characters.length) {
-        
-        // Get the next character
-        const characterIndex = gameState.slidesUsed.filter(slide => slide === "Character Slide").length;
-        const character = gameState.currentMystery.characters[characterIndex];
-        
-        // Create slide
-        createSlide("Character Slide", character);
-        
-        // Enter association if not already in one
-        if (gameState.associationLevel === 0) {
-          gameState.associationLevel = 1;
-          gameState.associationChain.push(gameState.currentSlideIndex - 1);
-          updateDisplay();
-        }
-      } else {
-        // No more characters
-        showNotification("No more characters can be found.");
-      }
-    }
-    
-    // Handle Location slide
-    function handleLocationSlide() {
-      if (!canCreateNewSlide()) return;
-      
-      // Check if we have locations left
-      if (gameState.currentMystery && 
-          gameState.slidesUsed.filter(slide => slide === "Location Slide").length < gameState.currentMystery.locations.length) {
-        
-        // Get the next location
-        const locationIndex = gameState.slidesUsed.filter(slide => slide === "Location Slide").length;
-        const location = gameState.currentMystery.locations[locationIndex];
-        
-        // Create slide
-        createSlide("Location Slide", location);
-      } else {
-        // No more locations
-        showNotification("No more locations can be found.");
-      }
-    }
-    
-    // Handle Action slide
-    function handleActionSlide() {
-      if (!canCreateNewSlide()) return;
-      
-      // Check if we have actions left
-      if (gameState.currentMystery && 
-          gameState.slidesUsed.filter(slide => slide === "Action Slide").length < gameState.currentMystery.actions.length) {
-        
-        // Get the next action
-        const actionIndex = gameState.slidesUsed.filter(slide => slide === "Action Slide").length;
-        const action = gameState.currentMystery.actions[actionIndex];
-        
-        // Create slide
-        createSlide("Action Slide", action);
-      } else {
-        // No more actions
-        showNotification("No more actions can be performed.");
-      }
-    }
-    
-    // Handle Reveal slide
-    function handleRevealSlide() {
-      if (!canCreateNewSlide()) return;
-      
-      // Check if we have enough slides to do a reveal
-      if (gameState.slidesUsed.length < 5) {
-        showNotification("Not enough evidence to reveal the solution. Examine more clues first.");
-        return;
-      }
-      
-      // Set up theories
-      let theoryContent = "";
-      const theories = gameState.currentMystery.reveal.theories;
-      
-      theories.forEach((theory, index) => {
-        theoryContent += `Theory #${index + 1}: ${theory}\n\n`;
-      });
-      
-      theoryContent += "Which statement is false? Select a number 1-5.";
-      
-      // Create slide
-      createSlide("Reveal Slide", theoryContent);
-      
-      // Update game stage
-      gameState.gameStage = "reveal";
-      gameState.correctAnswer = gameState.currentMystery.reveal.falseStatement;
-      
-      // Show answer buttons
-      revealInput.classList.add('active');
-    }
-    
-    // Handle Forward navigation
-    function handleForward() {
-      if (gameState.slidesUsed.length === 0) {
-        showNotification("Start a mystery first (Press M)");
-        return;
-      }
-      
-      if (gameState.currentSlideIndex < gameState.slidesUsed.length - 1) {
-        gameState.currentSlideIndex++;
-        updateDisplay();
-        animateSlideChange();
-      } else {
-        showNotification("You're at the last slide. Insert new slides to continue.");
-      }
-    }
-    
-    // Handle Back navigation
-    function handleBack() {
-      if (gameState.slidesUsed.length === 0) {
-        showNotification("Start a mystery first (Press M)");
-        return;
-      }
-      
-      if (gameState.currentSlideIndex > 0) {
-        gameState.currentSlideIndex--;
-        updateDisplay();
-        animateSlideChange();
-      } else {
-        showNotification("You're at the first slide.");
-      }
-    }
-    
-    // Handle Return (from association)
-    function handleReturn() {
-      if (gameState.associationLevel > 0) {
-        // Return from association chain
-        const returnIndex = gameState.associationChain.pop();
-        gameState.currentSlideIndex = returnIndex;
-        gameState.associationLevel--;
-        updateDisplay();
-        animateSlideChange();
-        showNotification("Returned from association chain.");
-      } else {
-        showNotification("Not in an association chain.");
-      }
-    }
-    
-    // Handle answer in reveal stage
-    function handleAnswer(number) {
-      if (gameState.gameStage !== "reveal") return;
-      
-      // Check if the answer is correct
-      const isCorrect = (number === gameState.correctAnswer);
-      
-      // Generate ending based on answer
-      const ending = isCorrect ? 
-        gameState.currentMystery.reveal.correctEnding : 
-        gameState.currentMystery.reveal.wrongEnding;
-      
-      // Create ending slide
-      createSlide("Ending", ending);
-      
-      // Update game stage
-      gameState.gameStage = "ending";
-      
-      // Hide answer buttons
-      revealInput.classList.remove('active');
-    }
-    
-    // Create a new slide
-    function createSlide(slideType, content) {
-      // Add to slide history
-      gameState.slidesUsed.push(slideType);
-      gameState.slideContents.push(content);
-      
-      // Update current index
-      gameState.currentSlideIndex = gameState.slidesUsed.length - 1;
-      
-      // Update display
-      updateDisplay();
-      animateSlideChange();
-    }
-    
-    // Update the display
-    function updateDisplay() {
-      // Update content
-      if (gameState.currentSlideIndex >= 0 && gameState.currentSlideIndex < gameState.slideContents.length) {
-        // Format content for reveal slide
-        if (gameState.slidesUsed[gameState.currentSlideIndex] === "Reveal Slide") {
-          let formattedContent = "";
-          const lines = gameState.slideContents[gameState.currentSlideIndex].split('\n');
-          
-          lines.forEach(line => {
-            if (line.startsWith('Theory #')) {
-              formattedContent += `<div class="theory">${line}</div>`;
-            } else {
-              formattedContent += `${line}\n`;
-            }
-          });
-          
-          slideContent.innerHTML = formattedContent;
-        } else {
-          // Regular content
-          slideContent.textContent = gameState.slideContents[gameState.currentSlideIndex];
-        }
-      } else {
-        slideContent.textContent = "Welcome to Mystery Solver! Press M to begin a new mystery.";
-      }
-      
-      // Update slide indicator
-      if (gameState.slidesUsed.length > 0) {
-        let indicatorText = `Slide ${gameState.currentSlideIndex + 1} of ${gameState.slidesUsed.length}: ${gameState.slidesUsed[gameState.currentSlideIndex]}`;
-        
-        // Add association level if in one
-        if (gameState.associationLevel > 0) {
-          indicatorText += ` (Association level: ${gameState.associationLevel})`;
-        }
-        
-        slideIndicator.textContent = indicatorText;
-      } else {
-        slideIndicator.textContent = "No slides yet";
-      }
-      
-      // Update instructions
-      updateInstructions();
-    }
-    
-    // Update instructions based on game state
-    function updateInstructions() {
-      switch(gameState.gameStage) {
-        case "initial":
-          instructionsBar.textContent = "Press M to start a new mystery.";
-          break;
-        case "main":
-          instructionsBar.textContent = "Insert slides (ECLRA keys) to investigate. Navigate with F/B. Press R when ready to solve.";
-          break;
-        case "reveal":
-          instructionsBar.textContent = "Which statement is false? Press a number 1-5 to answer.";
-          break;
-        case "ending":
-          instructionsBar.textContent = "Mystery solved. Press M to start a new mystery.";
-          break;
-      }
-    }
-    
-    // Check if we can create a new slide
-    function canCreateNewSlide() {
-      // Need to have started a mystery
-      if (!gameState.currentMystery) {
-        showNotification("Start a mystery first (Press M)");
-        return false;
-      }
-      
-      // Need to be at the last slide
-      if (gameState.currentSlideIndex !== gameState.slidesUsed.length - 1) {
-        showNotification("Navigate to the last slide before inserting a new one.");
-        return false;
-      }
-      
-      // Can't add more slides in ending stage
-      if (gameState.gameStage === "ending") {
-        showNotification("Mystery is already solved. Press M to start a new one.");
-        return false;
-      }
-      
-      return true;
-    }
-    
-    // Show a notification in the instructions bar
-    function showNotification(message) {
-      instructionsBar.textContent = message;
-      setTimeout(updateInstructions, 3000);
-    }
-    
-    // Animate slide change
-    function animateSlideChange() {
-      slideDisplay.classList.add('changing');
-      setTimeout(() => slideDisplay.classList.remove('changing'), 300);
-    }
-    
-    // Reset game state
-    function resetGameState() {
-      gameState.currentMystery = null;
-      gameState.slidesUsed = [];
-      gameState.slideContents = [];
-      gameState.currentSlideIndex = -1;
-      gameState.associationChain = [];
-      gameState.associationLevel = 0;
-      gameState.gameStage = "initial";
-      gameState.correctAnswer = null;
-      
-      // Hide answer buttons
-      revealInput.classList.remove('active');
-    }
-    
-    // Initialize when the page loads
-    document.addEventListener('DOMContentLoaded', init);
-  </script>
+    <footer>
+      <div class="slide-history" id="slide-history"></div>
+    </footer>
+  </div>
+  
+  <script type="module" src="sketch.js"></script>
 </body>
 </html>
