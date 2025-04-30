@@ -3,7 +3,6 @@ import './style.css';
 // JavaScript and Node.js imports, installed typically with npm install.
 import OpenAI from 'openai';
 
-
 // Declare globals.
 // Put your OpenAI API key here.
 //const apiKey = put your api key here or use .env file'; 
@@ -11,249 +10,241 @@ const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
 
 let openai;
 
-// @@@@@ 2025-04-08: Add message history to maintain conversation context @@@@@
-let messageHistory = [
-  {
-    role: "system",
-    content:
-      "You are a clever and slightly mysterious game master. " +
-      "You're hosting a game of lateral thinking puzzles (also known as 'situation puzzles' or 'yes/no riddles'). " +
-      "You present short, strange scenarios that hide an unexpected truth. The player can ask yes/no questions to figure it out. " +
-      "Only reply with 'yes', 'no', or 'irrelevant', unless the player is very close to the answer. " +
-      "If they're close enough or on the very right track, reveal the full story. " +
-      "Keep your tone engaging, curious, and slightly dramatic." +
-      "Keep a count of the total number of questions asked, if it reached 20, show that the user run out of question and reveal the full story directly." +
-      "When you are describing the puzzle, write only the story and no need to respond in any way apart from the story."
-  }
-];
-// @@@@@ End of addition @@@@@
+// MODIFIED: 2025-04-14 12:10
+// Game state object to keep track of the mystery progress
+const gameState = {
+  currentStory: "",         // The current mystery story being told
+  slidesUsed: [],           // Track which slides have been used
+  previousResponses: [],    // Store AI responses to each slide
+  evidenceFound: 0,         // Count of evidence slides used
+  charactersIntroduced: 0,  // Count of character slides used
+  explorationsDone: 0,      // Count of exploration slides used
+  storyStarted: false,      // Whether a story has been started with a Riddle Slide
+  gameMessage: "Welcome to the Mystery Projector! Press 'r' to insert a Riddle Slide and begin a new mystery."
+};
 
-// +++++ 2025-04-08: Add variables to separately store story and responses +++++
-let storyText = "";
-let responseText = "";
-// +++++ End of addition +++++
+// MODIFIED: 2025-04-14 11:30
+// Slide commands mapped to keyboard commands
+const slideCommands = {
+  r: "Riddle Slide",     // 'r' key for Riddle Slide
+  e: "Evidence Slide",   // 'e' key for Evidence Slide
+  c: "Character Slide",  // 'c' key for Character Slide
+  x: "Exploration Slide", // 'x' key for Exploration Slide
+  v: "Reveal Slide",     // 'v' key for Reveal Slide
+  h: "Help"              // 'h' key for game help (not part of the original system)
+};
 
-// %%%%%% 2025-04-10: Add flag to prevent duplicate story generation %%%%%%
-let isGeneratingStory = false;
-// %%%%%% End of flag addition %%%%%%
-
-// Keep all non-P5.js code outside of the sketch() function as much as possible.
-// This just makes things cleaner and enables you to break them out into
-// separate modules if need be. P5.js doesn't support modules without p. notation.
-
-
-/////////////// PROMPT FROM TEXT INPUT //////////////////////
-// Add an event listener to the text input.
-async function initializePromptInput (callback) {
-  const promptInput = document.getElementById('prompt-input');
-  
-  if (promptInput) {
-    // &&&&&& 2025-04-10: Add keydown event listener to the document to intercept special keys &&&&&&
-    document.addEventListener('keydown', function(event) {
-      // %%%%%% 2025-04-10: Add check to prevent duplicate key handling %%%%%%
-      // This is now only for Tab, ], and \ keys
-      // Do NOT handle [ key here, leave it for p5's keyPressed
-      if (event.keyCode === 9 || event.keyCode === 221 || event.keyCode === 220) {
-        event.preventDefault();
-        
-        // Log the intercepted key
-        console.log("Special key intercepted: " + event.key + " (keyCode: " + event.keyCode + ")");
-        
-        // Manually trigger the sketch's keyPressed function with the intercepted key
-        if (window.p5Instance && window.p5Instance.keyPressed) {
-          // Set the internal p5 keyCode for the instance
-          window.p5Instance._setProperty('keyCode', event.keyCode);
-          window.p5Instance._setProperty('key', event.key);
-          
-          // Call the keyPressed function
-          window.p5Instance.keyPressed();
-        } else {
-          console.log("p5 instance not accessible, cannot call keyPressed");
-        }
-      }
-      // %%%%%% End of key handling check %%%%%%
-    });
-    // &&&&&& End of special key interception &&&&&&
-    
-    promptInput.addEventListener('keydown', async function (event) {
-      // &&&&&& 2025-04-10: Ignore special keys for text input &&&&&&
-      if (event.keyCode === 9 || event.keyCode === 219 || event.keyCode === 221 || event.keyCode === 220) {
-        event.preventDefault();
-        return; // Skip processing these keys for text input
-      }
-      // &&&&&& End of special key filtering &&&&&&
-      
-      if (event.key === "Enter") {
-        event.preventDefault();
-        
-        // Get the text from the text input element.
-        const prompt = promptInput.value;
-        
-        // @@@@@ 2025-04-08: Update to use the message history @@@@@
-        // Add user message to history
-        messageHistory.push({
-          role: "user",
-          content: prompt
-        });
-        
-        // Call the OpenAI API with the full conversation history
-        const completion = await chatWithHistory();
-        
-        // Clear the input field
-        promptInput.value = "";
-        // @@@@@ End of modification @@@@@
-        
-        // +++++ 2025-04-08: Update only the response text, not the story +++++
-        responseText = completion;
-        callback(completion);
-        // +++++ End of modification +++++
-      } // end check for Enter
-    }); // end addEventListener click
-  } // end check for promptInput existence
-}
-
-// @@@@@ 2025-04-08: Modified to use message history @@@@@
-async function chatWithHistory() {
+// MODIFIED: 2025-04-14 12:15
+// Function to send slide commands to OpenAI
+async function sendSlideCommand(commandKey) {
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: messageHistory
-    });
-  
-    // Add assistant's response to history
-    const responseContent = completion.choices[0].message.content;
-    messageHistory.push({
-      role: "assistant",
-      content: responseContent
-    });
+    const slideCommand = slideCommands[commandKey];
     
-    return responseContent;
-  } catch (err) {
-    console.error("An error occurred in the chat function:", err);
-    return "An error occurred."
-  }
-}
-// @@@@@ End of modification @@@@@
-
-// @@@@@ 2025-04-08: Keep this function for backward compatibility @@@@@
-// Sends a single prompt to the OpenAI completions API.
-async function chat(prompt) {
-  // Add user message to history
-  messageHistory.push({
-    role: "user",
-    content: prompt
-  });
-  
-  // Use the shared function
-  return chatWithHistory();
-}
-// @@@@@ End of modification @@@@@
-
-
-/////////////// PROMPT FROM USER KEY PRESS //////////////////////
-// variable for coloring the square
-let generatedColor = '#FFFF00';
-
-// Sends a single prompt to the OpenAI completions API.
-async function sendToOpenAI(promptNew) {
-  //try {
-    console.log("Prompt: " + promptNew);
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [
-        {
-          "role": "user",
-          "content": promptNew
-        }
-      ]
-    });
-
-
-    let result = await completion.choices[0].message.content;
-    console.log("Result: " + result);
-    generatedColor = result;
-  
-    //return completion.choices[0].message.content;
-  //} catch (err) {
-   // console.error("An error occurred in the chat function:", err);
-   // return "An error occurred."
-  //}
-
-}
-
-// ======= 2025-04-08: Fixed bug where generating a new story doesn't properly clear old story =======
-// %%%%%% 2025-04-10: Modified to prevent duplicate story generation %%%%%%
-async function getStoryFromGPT(promptNew, callback) {
-  // Check if already generating a story
-  if (isGeneratingStory) {
-    console.log("Already generating a story, request ignored");
-    return;
-  }
-  
-  // Set flag to prevent duplicate calls
-  isGeneratingStory = true;
-  
-  try {
-    console.log("Sending story prompt to GPT...");
+    if (!slideCommand) {
+      gameState.gameMessage = "Invalid slide type. Try one of the available slides.";
+      return;
+    }
     
-    // Clear the existing story and response immediately to prevent display issues
-    storyText = "";
-    responseText = "";
+    // Handle special case for help command
+    if (slideCommand === "Help") {
+      gameState.gameMessage = `
+Mystery Projector Help:
+- Press 'r' to insert a Riddle Slide (starts a new mystery)
+- Press 'e' to insert an Evidence Slide (reveals physical clues)
+- Press 'c' to insert a Character Slide (introduces key characters)
+- Press 'x' to insert an Exploration Slide (analyzes previous clues)
+- Press 'v' to insert a Reveal Slide (attempts to solve the mystery)
+- Press 'h' for this help screen
+
+Begin by pressing 'r' to start a new mystery!`;
+      return;
+    }
     
-    // Reset the message history to just the system message
-    messageHistory = [
+    // Handle special case: Riddle Slide starts a new story
+    if (slideCommand === "Riddle Slide") {
+      gameState.slidesUsed = []; 
+      gameState.previousResponses = [];
+      gameState.evidenceFound = 0;
+      gameState.charactersIntroduced = 0;
+      gameState.explorationsDone = 0;
+      gameState.storyStarted = true;
+    }
+    
+    // Check if trying to use a slide before starting the story
+    if (!gameState.storyStarted && slideCommand !== "Riddle Slide") {
+      gameState.gameMessage = "You must insert a Riddle Slide first to begin a mystery.";
+      return;
+    }
+    
+    // Track the use of this slide
+    gameState.slidesUsed.push(slideCommand);
+    
+    // Update specific counters based on slide type
+    if (slideCommand === "Evidence Slide") gameState.evidenceFound++;
+    if (slideCommand === "Character Slide") gameState.charactersIntroduced++;
+    if (slideCommand === "Exploration Slide") gameState.explorationsDone++;
+    
+    console.log("Sending slide command: " + slideCommand);
+    
+    // Create messages array with the system prompt from the mystery projector
+    const messages = [
       {
-        role: "system",
-        content:
-          "You are a clever and slightly mysterious game master. " +
-          "You're hosting a game of lateral thinking puzzles (also known as 'situation puzzles' or 'yes/no riddles'). " +
-          "You present short, strange scenarios that hide an unexpected truth. The player can ask yes/no questions to figure it out. " +
-          "Only reply with 'yes', 'no', or 'irrelevant', unless the player is very close to the answer. " +
-          "If they're close enough or on the very right track, reveal the full story. " +
-          "Keep your tone engaging, curious, and slightly dramatic." +
-          "Keep a count of the total number of questions asked, if it reached 20, show that the user run out of question and reveal the full story directly." +
-          "When you are describing the puzzle, write only the story and no need to respond in any way apart from the story."
+        "role": "system",
+        "content": `
+You are an AI-powered narrative puzzle engine embedded in a physical interactive device inspired by vintage slide projectors. Players interact with you by inserting physical slides of specific types.
+
+🎮 The player does **not type** questions or dialogue. They only send one of the following **fixed keyword commands** to you as input:
+
+  • "Riddle Slide"
+  • "Evidence Slide"
+  • "Character Slide"
+  • "Exploration Slide"
+  • "Reveal Slide"
+
+Each keyword corresponds to a physical slide inserted by the player. You must respond to each of these commands by generating narrative content in your role as a mystery puzzle system.
+
+---
+
+🔧 Your job is to:
+
+- Create a complete and immersive mystery story that unfolds over time.
+- Respond ONLY to the 5 fixed commands above. These are the only instructions you will ever receive.
+- Treat each slide as a functional trigger. The type and sequence of slides define how the story is revealed.
+- Handle all aspects of story generation, pacing, clue delivery, and logic evaluation.
+- Track narrative progress and determine when the player has enough clues to unlock the mystery.
+
+🧩 Slide Behavior:
+
+1. **Riddle Slide** – Generates a mysterious scenario that hints at a deeper hidden truth. It starts the story. Style should resemble "Turtle Soup" lateral-thinking riddles, with eerie, strange, or puzzling setups.
+
+2. **Evidence Slide** – Reveals one concrete object or physical clue from the current story. Each new Evidence Slide shows a different object. If all relevant items have been revealed, show an empty slide that says: "No more evidence can be found."
+
+3. **Character Slide** – Introduces a key character involved in the mystery. When multiple Character Slides are used, introduce them in order of relevance. Include brief psychological or historical details if useful.
+
+4. **Exploration Slide** – Allows the player to analyze any one previously introduced clue, character, or concept. Reveal deeper context, backstory, new associations, or generate new items/people to be revealed later.
+
+5. **Reveal Slide** – The player tries to solve the mystery. You must assess whether they have enough information. If so, generate a full, surprising, and satisfying resolution. If not, say that more information is needed and suggest what to explore.
+
+---
+
+🎭 Tone & Style Guidelines:
+
+- Keep everything **in-world** and **immersive**. You are not a chatbot or narrator. You are the intelligence inside the device.
+- Storytelling should feel cinematic, progressive, and well-paced. Let the mystery build gradually.
+- Ensure each story has a **distinct genre and mood**: one may be folklore, another time-travel, another a domestic crime or cult mystery.
+- Avoid repetition across stories (e.g., don't overuse science experiments or memory loss).
+- Only allow a successful Reveal when the player has uncovered enough evidence and context.
+- Do not repeat information from previous slides. Keep each slide fresh.
+- Do not allow the player to skip ahead too quickly; deny early "Reveal" attempts when appropriate.
+
+---
+
+💡 Sample Interaction:
+
+> Player inserts: "Riddle Slide"  
+You respond:  
+---
+🔮 **Riddle Slide – Projecting**  
+A man is found dead at the base of his apartment building. His shoes are dry, his clothes wet. The top floor window is closed from the inside. A note in his pocket reads: "The last rain already fell."  
+🧩 The mystery begins. Insert slides to investigate.
+
+> Player inserts: "Evidence Slide"  
+You respond:  
+---
+🟠 **Evidence Slide #1 – Projecting**  
+📌 A broken umbrella with the man's initials, found by the trash chute. No rain was reported that week.  
+🧩 One clue uncovered. There may be more.
+
+> Player inserts: "Reveal Slide"  
+You respond:  
+---
+🟥 **Reveal Slide – Projecting**  
+⚠️ Insufficient information to resolve the mystery. Consider exploring more characters or clues.
+
+---
+
+🎮 Your output for each slide should follow this structure:
+
+- Header (e.g., "🟠 Evidence Slide #2 – Projecting")
+- Vivid narrative description of what appears on the slide
+- Newly unlocked clues or leads clearly marked with icons (e.g., 📌, 🧩)
+- A final prompt: suggested next actions (insert another slide, explore something, etc.)
+
+🛑 DO NOT start any mystery until the player inserts the first "Riddle Slide". After that, the story is yours to shape — based entirely on the player's physical slide inputs.
+`
       }
     ];
     
-    // Add user's initial prompt to the history
-    messageHistory.push({
-      role: "user",
-      content: promptNew
+    // Add all previous slide commands and responses as context for the AI
+    for (let i = 0; i < gameState.slidesUsed.length - 1; i++) {
+      // Add the user's previous slide command
+      messages.push({
+        "role": "user",
+        "content": gameState.slidesUsed[i]
+      });
+      
+      // Add the AI's previous response for this slide
+      messages.push({
+        "role": "assistant",
+        "content": gameState.previousResponses[i] || "No previous response available"
+      });
+    }
+    
+    // Add the current slide command that we're processing
+    messages.push({
+      "role": "user",
+      "content": slideCommand
     });
     
-    // Get completion using the shared history
+    // Send the request to OpenAI
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
-      messages: messageHistory
+      messages: messages
     });
 
-    let result = completion.choices[0].message.content;
-    console.log("Story received from GPT");
+    // Get the response and update the game state
+    const result = completion.choices[0].message.content;
+    console.log("Received response: " + result);
     
-    // Add assistant's response to the history
-    messageHistory.push({
-      role: "assistant",
-      content: result
-    });
+    // Store the AI's response
+    gameState.previousResponses.push(result);
     
-    // Set the new story
-    storyText = result;
+    // Update the game message to show this response
+    gameState.gameMessage = result;
     
-    callback(result);
+    return result;
   } catch (err) {
-    console.error("An error occurred while getting the story:", err);
-    callback("An error occurred while getting the story.");
-  } finally {
-    // Always reset the flag when done, regardless of success or failure
-    isGeneratingStory = false;
+    console.error("An error occurred in the slide command function:", err);
+    gameState.gameMessage = "The projector mechanism jammed. Try again.";
+    return "An error occurred.";
   }
 }
-// %%%%%% End of duplicate prevention modification %%%%%%
-// ======= End of fix =======
 
+// MODIFIED: 2025-04-14 11:38
+// Functions to handle specific slide commands
+async function insertRiddleSlide() {
+  return sendSlideCommand("r");
+}
 
+async function insertEvidenceSlide() {
+  return sendSlideCommand("e");
+}
 
+async function insertCharacterSlide() {
+  return sendSlideCommand("c");
+}
+
+async function insertExplorationSlide() {
+  return sendSlideCommand("x");
+}
+
+async function insertRevealSlide() {
+  return sendSlideCommand("v");
+}
+
+async function showHelp() {
+  return sendSlideCommand("h");
+}
 
 // =====================================================================================
 // THIS IS WHERE P5.JS CODE STARTS
@@ -263,228 +254,139 @@ async function getStoryFromGPT(promptNew, callback) {
 // holds the core functionality of P5.js.
 const sketch = p => {
   // Put any sketch-specific state here.
-  
-  let textToShow = "";  // This is the text that will be displayed on the canvas.
-
   let port; // variable to hold the serial port object
 
-  let responseFromOpenAI; // variable to hold the color response from OpenAI API
-
-  // &&&&&& 2025-04-10: Store p5 instance globally for external access &&&&&&
-  window.p5Instance = p;
-  // &&&&&& End of p5 instance storage &&&&&&
+  // MODIFIED: 2025-04-14 11:40
+  // Visual elements for the projector game
+  let font;
+  let projectorOverlay;
+  let slideSound;
+  
+  // MODIFIED: 2025-04-14 11:42
+  // Preload game assets
+  p.preload = function() {
+    font = p.loadFont('https://cdnjs.cloudflare.com/ajax/libs/topcoat/0.8.0/font/SourceSansPro-Regular.otf');
+    // In a real implementation, you would load actual images:
+    // projectorOverlay = p.loadImage('path/to/projector-frame.png');
+    // slideSound = p.loadSound('path/to/slide-click.mp3');
+  }
 
   ////////// P5.JS SETUP //////////
   p.setup = function () {
-
-    // Provide a callback function to the text prompt for when a successful
-    // completion is returned from the OpenAI API. This helps ensure the
-    // sketch state, textToShow, remains inside the sketch() function.
-    const callback = function (completion) {
-      textToShow = completion;
-    };
-    initializePromptInput(callback);
+    // MODIFIED: 2025-04-14 12:25
+    // Set up the canvas for the projector game
+    p.createCanvas(800, 600);
+    p.textFont(font);
+    p.textSize(18);
+    p.background(20, 20, 25);
     
-    // Initialize the serial port object
+    // Initialize the serial port object (if needed for hardware integration)
     port = p.createSerial();
     
-    // Set up the canvas
-    p.createCanvas(1000, 1000);
-
-
+    // Set the game message to the welcome message
+    gameState.gameMessage = "Welcome to the Mystery Projector! Press 'r' to insert a Riddle Slide and begin a new mystery.";
+    
+    // Initialize the game at startup
+    drawProjectorInterface();
   } // end setup
   
+  // MODIFIED: 2025-04-14 12:20
+  // Function to display the projector interface
+  function drawProjectorInterface() {
+    // Create a dark background like a dimly lit room
+    p.background(20, 20, 25);
+    
+    // Draw the projector screen (lighter rectangle in center)
+    p.fill(40, 40, 45);
+    p.noStroke();
+    p.rect(50, 50, p.width - 100, p.height - 150, 5);
+    
+    // Draw projector light effect
+    p.fill(255, 255, 255, 30);
+    p.beginShape();
+    p.vertex(p.width/2, p.height - 50);
+    p.vertex(100, 100);
+    p.vertex(p.width - 100, 100);
+    p.endShape(p.CLOSE);
+    
+    // Draw slide content area with a vintage projector feel
+    p.fill(240, 240, 220);
+    p.rect(100, 100, p.width - 200, p.height - 250, 2);
+    
+    // Draw the message content (the slide)
+    p.fill(20, 20, 20);
+    p.textSize(18);
+    p.textLeading(26); // Line spacing for readability
+    
+    // Format and display the slide content - handle different emoji headers
+    const messageText = gameState.gameMessage;
+    p.text(messageText, 120, 120, p.width - 240, p.height - 290);
+    
+    // Draw slide indicators at the bottom
+    p.fill(200, 200, 180);
+    p.textSize(14);
+    p.text("Slides Used: " + (gameState.slidesUsed.length > 0 ? gameState.slidesUsed.join(" → ") : "None"), 100, p.height - 70);
+    
+    // Draw command help
+    p.fill(180, 180, 160);
+    p.textSize(14);
+    const commands = "[R]iddle [E]vidence [C]haracter e[X]ploration re[V]eal [H]elp";
+    p.text(commands, p.width/2 - p.textWidth(commands)/2, p.height - 30);
+  }
 
-// ---------- 2025-04-10: Fixed text rendering to properly handle newlines and prevent overlapping text ----------
-p.draw = function () {
-  // Clear background
-  p.background(p.color('grey'));
-  
-  // Set initial text properties
-  p.textSize(20);
-  
-  // Configure text wrapping parameters
-  const maxWidth = 900;       // Maximum width for text wrapping
-  const lineHeight = 30;      // Increased line height to prevent tight text
-  const paragraphGap = 20;    // Extra space between paragraphs (story & response)
-  let yPosition = 70;         // Starting y position for text
-  
-  // Draw colored square in top-left
-  p.fill(p.color(generatedColor));
-  p.rect(0, 0, 50, 50);
-  
-  // --------- Draw Story Text (if available) ---------
-  if (storyText && storyText.trim() !== "") {
-    // Draw section header
-    p.fill(p.color('black'));
-    p.textStyle(p.BOLD);
-    p.text("PUZZLE:", 50, yPosition);
-    yPosition += lineHeight;
-    
-    // Handle text with newlines by splitting into paragraphs first
-    let paragraphs = storyText.split('\n');
-    
-    // Process each paragraph separately
-    for (let para = 0; para < paragraphs.length; para++) {
-      if (paragraphs[para].trim() === '') {
-        // For empty paragraphs (just a newline), add some space
-        yPosition += lineHeight/2;
-        continue;
-      }
+  ////////// P5.JS DRAW //////////
+  p.draw = function () {
+    // MODIFIED: 2025-04-14 11:48
+    // Draw the projector interface
+    drawProjectorInterface();
+
+    // Read data from the serial port (for potential physical hardware integration)
+    let str = port.read();
+    if (str.length > 0) {
+      console.log(str);
       
-      // Break paragraph text into words for wrapping
-      let words = paragraphs[para].split(' ');
-      let currentLine = '';
-      
-      // Process each word for text wrapping
-      for (let i = 0; i < words.length; i++) {
-        let word = words[i];
-        let testLine = currentLine + word + ' ';
-        
-        // Check if adding the next word exceeds maxWidth
-        if (p.textWidth(testLine) > maxWidth) {
-          // Draw the current line before it gets too long
-          p.text(currentLine, 50, yPosition);
-          // Start a new line with the current word
-          currentLine = word + ' ';
-          // Move down for the next line
-          yPosition += lineHeight;
-        } else {
-          // If not too wide, continue building current line
-          currentLine = testLine;
-        }
-      }
-      
-      // Draw the final line of current paragraph
-      if (currentLine.trim() !== '') {
-        p.text(currentLine, 50, yPosition);
-        yPosition += lineHeight;
-      }
-      
-      // Small gap between paragraphs within the story
-      if (para < paragraphs.length - 1) {
-        yPosition += lineHeight/3;
+      // In a full implementation, you could map hardware inputs to slide commands
+      // For example, if a physical slide is inserted, it could send "R" for Riddle Slide
+      if (str.toUpperCase() === "R") {
+        insertRiddleSlide();
       }
     }
-    
-    // Add extra space between story and response
-    yPosition += paragraphGap;
-  }
-  
-  // --------- Draw Response Text (if available) ---------
-  if (responseText && responseText.trim() !== "") {
-    // Draw section header with different color
-    p.fill(p.color('blue'));
-    p.textStyle(p.NORMAL);
-    p.text("RESPONSE:", 50, yPosition);
-    yPosition += lineHeight;
-    
-    // Handle text with newlines by splitting into paragraphs first
-    let paragraphs = responseText.split('\n');
-    
-    // Process each paragraph separately
-    for (let para = 0; para < paragraphs.length; para++) {
-      if (paragraphs[para].trim() === '') {
-        // For empty paragraphs (just a newline), add some space
-        yPosition += lineHeight/2;
-        continue;
-      }
-      
-      // Break paragraph text into words for wrapping
-      let words = paragraphs[para].split(' ');
-      let currentLine = '';
-      
-      // Process each word for text wrapping
-      for (let i = 0; i < words.length; i++) {
-        let word = words[i];
-        let testLine = currentLine + word + ' ';
-        
-        // Check if adding the next word exceeds maxWidth
-        if (p.textWidth(testLine) > maxWidth) {
-          // Draw the current line before it gets too long
-          p.text(currentLine, 50, yPosition);
-          // Start a new line with the current word
-          currentLine = word + ' ';
-          // Move down for the next line
-          yPosition += lineHeight;
-        } else {
-          // If not too wide, continue building current line
-          currentLine = testLine;
-        }
-      }
-      
-      // Draw the final line of current paragraph
-      if (currentLine.trim() !== '') {
-        p.text(currentLine, 50, yPosition);
-        yPosition += lineHeight;
-      }
-      
-      // Small gap between paragraphs within the response
-      if (para < paragraphs.length - 1) {
-        yPosition += lineHeight/3;
-      }
-    }
-  }
-  
-  // Check for serial port data
-  let str = port.read();
-  if (str.length > 0) {
-    console.log(str);
-  }
-};
-// ---------- End of newline handling fix ----------
+  } // end draw
 
-
+  // MODIFIED: 2025-04-14 11:50
   ////////// P5.JS KEYBOARD INPUT //////////
   p.keyPressed = function () {
-    // &&&&&& 2025-04-10: Added debug to verify function is called &&&&&&
-    console.log("p5.keyPressed function called - Key: " + p.key + " (keyCode: " + p.keyCode + ")");
-    // &&&&&& End of debug addition &&&&&&
-
-    // @@@@@ 2025-04-08: Changed to use Tab, [, ], and \ keys @@@@@
-    // Tab key (keyCode 9): Get a color from GPT (was 'c')
-    if (p.keyCode === 9) { // Tab key
-      sendToOpenAI("What is the color of the sky? Respond with RGB HEX code only. No explanations.");
-    }
-
-    // ======= 2025-04-08: Modified to properly handle story generation =======
-    // %%%%%% 2025-04-10: Added handling for [ key specifically in the p5 context %%%%%%
-    // Left bracket [ key (keyCode 219): Get a story from GPT (was 'r')
-    if (p.keyCode === 219) { // [ key
-      console.log("Generating story from p5.keyPressed handler...");
-      // Clear both text displays when generating a new story
-      storyText = "";
-      responseText = "";
-      textToShow = "Generating story...";
-      getStoryFromGPT("Start the game", (story) => {
-        textToShow = story;
-      });
-    }
-    // %%%%%% End of [ key specific handling %%%%%%
-    // ======= End of modification =======
-
-    // Right bracket ] key (keyCode 221): Connect to serial port (was 's')
-    if (p.keyCode === 221) { // ] key
-      port.open(9600);
-    }
-
-    // Backslash \ key (keyCode 220): LED high (was 'h')
-    if (p.keyCode === 220) { // \ key
-      port.write("H");
-    }
+    // Add slide projector sound effect (commented out as placeholder)
+    // if (slideSound && ["r", "e", "c", "x", "v"].includes(p.key.toLowerCase())) {
+    //   slideSound.play();
+    // }
     
-    // Print the key code to the console for debugging
-    console.log("Key pressed handler complete: " + p.key + " (keyCode: " + p.keyCode + ")");
-    // @@@@@ End of modification @@@@@
-
-    // &&&&&& 2025-04-10: Return false for special keys to prevent default browser behavior &&&&&&
-    if (p.keyCode === 9 || p.keyCode === 219 || p.keyCode === 221 || p.keyCode === 220) {
-      return false;
+    // Mystery projector control keys
+    switch(p.key.toLowerCase()) {
+      case 'r': // Riddle Slide
+        insertRiddleSlide();
+        break;
+      case 'e': // Evidence Slide
+        insertEvidenceSlide();
+        break;
+      case 'c': // Character Slide
+        insertCharacterSlide();
+        break;
+      case 'x': // Exploration Slide
+        insertExplorationSlide();
+        break;
+      case 'v': // Reveal Slide
+        insertRevealSlide();
+        break;
+      case 'h': // Help
+        showHelp();
+        break;
+      case 's': // Connect to serial port (for hardware integration)
+        port.open(9600);
+        break;
     }
-    // &&&&&& End of browser default prevention &&&&&&
   } // end keyPressed
 } // end sketch function
-
 
 
 // =====================================================================================
