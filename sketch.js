@@ -15,7 +15,10 @@ const CONFIG = {
     Evidence: 6,               // 证据卡最大数量
     Location: 4,               // 地点卡最大数量
     Action: 6                  // 行动卡最大数量
-  }
+  },
+  // 添加关联触发概率配置
+  associationThreshold: 0.75,  // 关联触发阈值，高于此值才触发关联
+  maxAssociationsPerGame: 3    // 每个游戏最多触发关联的次数
 };
 
 // Game state
@@ -36,7 +39,10 @@ let gameState = {
     Evidence: 0,
     Location: 0,
     Action: 0
-  }
+  },
+  // 添加关联机制状态
+  associationCount: 0,       // 当前已触发关联次数
+  associationTargets: [],    // 存储强关联对象 [{sourceIndex, targetIndex, reason}]
 };
 
 // Initialize OpenAI
@@ -280,7 +286,8 @@ Guidelines:
 - Limit setting to 1-2 scenes. Keep it grounded.
 - Write only a single paragraph, with a one-sentence riddle at the end.
 - Response must be 50-100 words total, no more.
-- Do not include any meta information, instructions, or additional content.`;
+- Do not include any meta information, instructions, or additional content.
+- Create opportunities for strong logical connections to emerge (contradictions, revelations, etc.)`;
 
   // Add previous mysteries to avoid repetition
   if (gameState.previousMysteries.length > 0) {
@@ -323,7 +330,7 @@ async function createSlide(slideType) {
     return;
   }
   
-  // 检查每种卡片类型的限制 - 修改此部分代码
+  // 检查每种卡片类型的限制
   if (slideType !== "Reveal" && slideType !== "Mystery") {
     // 检查特定类型的卡片是否已达到最大数量
     if (gameState.slideCounts[slideType] >= CONFIG.maxCardCounts[slideType]) {
@@ -413,9 +420,9 @@ async function createSlide(slideType) {
     gameState.originalContent.push(slideContent);
     gameState.currentIndex = gameState.slides.length - 1;
     
-    // For specific cards, enter insight chain
-    if (slideType === "Evidence" || slideType === "Character" || slideType === "Action") {
-      enterInsightChain();
+    // 修改：检查新卡片和现有卡片之间的强关联
+    if (slideType === "Evidence" || slideType === "Character" || slideType === "Action" || slideType === "Location") {
+      await checkForStrongAssociations(gameState.currentIndex);
     }
     
     // Update UI
@@ -439,21 +446,22 @@ function createSlideSystemPrompt(slideType) {
 Your job is to generate short and essential narrative content, always in English.
 Content must be extremely concise (max 2-3 sentences).
 Focus only on new information that directly relates to the mystery.
-All clues must make logical sense together.`;
+All clues must make logical sense together.
+Occasionally introduce elements that could strongly relate to or contradict earlier information.`;
 
   // Add specific instructions based on card type
   switch(slideType) {
     case "Evidence":
-      return basePrompt + `\n\nFor this Evidence slide:\n- Describe one physical clue in 1-2 sentences maximum.\n- Be direct and factual, avoid speculation.\n- Focus on what's observed, not what it means.`;
+      return basePrompt + `\n\nFor this Evidence slide:\n- Describe one physical clue in 1-2 sentences maximum.\n- Be direct and factual, avoid speculation.\n- Focus on what's observed, not what it means.\n- Consider adding details that might confirm or contradict previously known information.`;
       
     case "Character":
-      return basePrompt + `\n\nFor this Character slide:\n- Introduce one person in 1-2 sentences maximum.\n- Include only their name, role, and a very brief statement.\n- Keep it minimal but revealing.`;
+      return basePrompt + `\n\nFor this Character slide:\n- Introduce one person in 1-2 sentences maximum.\n- Include only their name, role, and a very brief statement.\n- Keep it minimal but revealing.\n- Consider adding details about alibi, background, or connections that might relate to previous clues.`;
       
     case "Location":
-      return basePrompt + `\n\nFor this Location slide:\n- Describe one place in 1-2 sentences maximum.\n- Include just one distinctive detail.\n- Be direct and specific.`;
+      return basePrompt + `\n\nFor this Location slide:\n- Describe one place in 1-2 sentences maximum.\n- Include just one distinctive detail.\n- Be direct and specific.\n- Consider including elements that might connect to previous characters or evidence.`;
       
     case "Action":
-      return basePrompt + `\n\nFor this Action slide:\n- Describe one investigation step in 1-2 sentences maximum.\n- Focus only on what is done and what it reveals.\n- Be concise and clear.`;
+      return basePrompt + `\n\nFor this Action slide:\n- Describe one investigation step in 1-2 sentences maximum.\n- Focus only on what is done and what it reveals.\n- Be concise and clear.\n- Consider revealing information that contradicts or provides new insight into previous evidence or statements.`;
       
     case "Reveal":
       return basePrompt + `\n\nFor this Reveal slide:\n1. Write exactly 5 theories (numbered 1-5).\n2. Each must be exactly 1 sentence.\n3. Four theories should be true, one false.\n4. The false one should be plausible but wrong.\n5. End with: 'Which theory is false?'`;
@@ -463,14 +471,119 @@ All clues must make logical sense together.`;
   }
 }
 
-// Enter insight chain
-function enterInsightChain() {
-  // Only enter if not already in insight chain
+// 新增：检查强关联
+async function checkForStrongAssociations(slideIndex) {
+  // 如果已达到关联次数上限，则跳过
+  if (gameState.associationCount >= CONFIG.maxAssociationsPerGame) {
+    console.log("Already reached maximum association triggers for this game.");
+    return;
+  }
+  
+  // 获取当前卡片
+  const currentSlideType = gameState.slides[slideIndex];
+  const currentContent = gameState.content[slideIndex];
+  
+  // 寻找潜在的关联对象（跳过Mystery和当前卡片）
+  const potentialTargets = [];
+  for (let i = 0; i < gameState.slides.length - 1; i++) {
+    // 跳过Mystery卡和已修改的卡片
+    if (gameState.slides[i] === "Mystery" || gameState.modifiedSlides.has(i)) {
+      continue;
+    }
+    
+    potentialTargets.push(i);
+  }
+  
+  // 如果没有潜在目标，直接返回
+  if (potentialTargets.length === 0) {
+    return;
+  }
+  
+  // 随机选择最多3个潜在目标进行检查
+  const shuffled = potentialTargets.sort(() => 0.5 - Math.random());
+  const selectedTargets = shuffled.slice(0, Math.min(3, potentialTargets.length));
+  
+  // 创建系统提示
+  const systemPrompt = `You are analyzing a mystery game where players discover clues.
+Your task is to determine if a new card has a strong logical connection to a previous card.
+A strong connection must involve one of these specific scenarios:
+1. Direct contradiction - A clear factual conflict (like timeline inconsistencies)
+2. Identity revelation - Revealing someone's true identity or role
+3. Physical connection - A physical object matches or connects to another (like a key fitting a lock)
+4. Alibi invalidation - Evidence proves a statement was false
+5. Misleading information - Earlier assumptions are proven incorrect
+
+Rate on a scale of 0.0-1.0 how strongly connected these cards are, with 0.0 being no connection and 1.0 being definitive connection.
+Only high ratings (${CONFIG.associationThreshold} or higher) indicate a true connection.
+If rating is below ${CONFIG.associationThreshold}, return "No strong connection."
+If rating is ${CONFIG.associationThreshold} or higher, explain the exact logical relationship in one sentence.`;
+
+  // 检查每个选定的目标
+  for (const targetIndex of selectedTargets) {
+    const targetSlideType = gameState.slides[targetIndex];
+    const targetContent = gameState.content[targetIndex];
+    
+    // 创建消息
+    const messages = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Previous ${targetSlideType} card: ${targetContent}\n\nNew ${currentSlideType} card: ${currentContent}\n\nIs there a strong logical connection between these cards? Rate from 0.0-1.0 and explain if ≥${CONFIG.associationThreshold}.` }
+    ];
+    
+    // 调用API
+    const response = await openai.chat.completions.create({
+      model: CONFIG.apiModel,
+      messages: messages
+    });
+    
+    const analysisResult = response.choices[0].message.content;
+    
+    // 解析结果
+    if (analysisResult.includes("No strong connection")) {
+      console.log(`No strong connection found between card ${slideIndex} and card ${targetIndex}`);
+      continue;
+    }
+    
+    // 提取关联评分和原因
+    let rating = 0.0;
+    const ratingMatch = analysisResult.match(/(\d+\.\d+)/);
+    if (ratingMatch) {
+      rating = parseFloat(ratingMatch[1]);
+    }
+    
+    // 如果评分超过阈值，触发关联
+    if (rating >= CONFIG.associationThreshold) {
+      console.log(`Strong connection found! Rating: ${rating} between card ${slideIndex} and card ${targetIndex}`);
+      
+      // 提取关联原因
+      let reason = analysisResult.replace(/\d+\.\d+/, "").replace(/Rating:|\r|\n/g, "").trim();
+      
+      // 存储关联信息
+      gameState.associationTargets.push({
+        sourceIndex: slideIndex,
+        targetIndex: targetIndex,
+        reason: reason
+      });
+      
+      // 进入洞察链
+      enterInsightChain(targetIndex);
+      
+      // 增加关联计数
+      gameState.associationCount++;
+      
+      // 只触发一个关联
+      break;
+    }
+  }
+}
+
+// 修改：进入洞察链
+function enterInsightChain(targetIndex) {
+  // 只有当未在洞察链中时才进入
   if (gameState.insightLevel === 0) {
     gameState.insightLevel = 1;
-    gameState.insightChain.push(gameState.currentIndex);
+    gameState.insightChain.push(targetIndex);
     elements.instructionBar.textContent = 
-      "New insight path found. Add more cards or press T to process insight.";
+      "Strong connection discovered! Press T to revisit the connected card with new insight.";
     updateInsightIndicator();
   }
 }
@@ -529,40 +642,45 @@ function navigateForward() {
   }
 }
 
-// Return navigation (from insight chain)
+// 修改：从洞察链返回
 async function navigateReturn() {
   if (gameState.isLoading) return;
   
-  // Check if in insight chain
+  // 检查是否在洞察链中
   if (gameState.insightLevel <= 0) {
-    elements.instructionBar.textContent = "Not in an insight chain.";
+    elements.instructionBar.textContent = "No active connections to process.";
     return;
   }
   
-  // Show loading state
-  setLoading(true, "Processing insight...");
+  // 显示加载状态
+  setLoading(true, "Processing connection insight...");
   
   try {
-    // Get index to return to
-    const returnIndex = gameState.insightChain.pop();
+    // 获取返回索引（目标卡片）
+    const targetIndex = gameState.insightChain.pop();
     
-    // Reduce insight level
+    // 减少洞察级别
     gameState.insightLevel--;
     
-    // If exiting chain completely, update earlier cards
+    // 如果完全退出链，则更新目标卡片
     if (gameState.insightLevel === 0) {
-      await updateSlidesWithNewInsights();
+      // 找到最近添加的关联
+      const association = gameState.associationTargets.find(assoc => assoc.targetIndex === targetIndex);
+      
+      if (association) {
+        await updateSlideWithAssociation(association);
+      }
     }
     
-    // Go to return index
-    gameState.currentIndex = returnIndex;
+    // 转到目标卡片
+    gameState.currentIndex = targetIndex;
     
-    // Update UI
+    // 更新UI
     updateUI();
     updateInsightIndicator();
     updateSlideHistory();
     
-    // Hide loading
+    // 隐藏加载
     setLoading(false);
     
   } catch (error) {
@@ -572,156 +690,57 @@ async function navigateReturn() {
   }
 }
 
-// Update cards after completing insight chain
-async function updateSlidesWithNewInsights() {
-  // Identify cards that should be updated
-  const slidesToUpdate = [];
-  
-  // Find out which cards should be updated based on discoveries
-  for (let i = 0; i < gameState.slides.length - 1; i++) {
-    // Skip already updated cards
-    if (gameState.modifiedSlides.has(i)) {
-      continue;
-    }
-    
-    // Character cards affected by Evidence or Action
-    if (gameState.slides[i] === "Character") {
-      // Look for subsequent Evidence or Action cards
-      let hasRelevantLaterSlide = false;
-      for (let j = i + 1; j < gameState.slides.length; j++) {
-        if (gameState.slides[j] === "Evidence" || gameState.slides[j] === "Action") {
-          hasRelevantLaterSlide = true;
-          break;
-        }
-      }
-      
-      if (hasRelevantLaterSlide) {
-        slidesToUpdate.push(i);
-      }
-    }
-    
-    // Evidence cards affected by Character or Action
-    if (gameState.slides[i] === "Evidence") {
-      // Look for subsequent Character or Action cards
-      let hasRelevantLaterSlide = false;
-      for (let j = i + 1; j < gameState.slides.length; j++) {
-        if (gameState.slides[j] === "Character" || gameState.slides[j] === "Action") {
-          hasRelevantLaterSlide = true;
-          break;
-        }
-      }
-      
-      if (hasRelevantLaterSlide) {
-        slidesToUpdate.push(i);
-      }
-    }
-    
-    // Location cards affected by any subsequent card
-    if (gameState.slides[i] === "Location") {
-      // Check if there are any subsequent cards
-      if (i < gameState.slides.length - 1) {
-        slidesToUpdate.push(i);
-      }
-    }
-  }
-  
-  // Skip if no cards to update
-  if (slidesToUpdate.length === 0) {
-    elements.instructionBar.textContent = "No cards to update with new insights.";
-    return;
-  }
-  
-  // Update indicator while processing
-  elements.instructionBar.textContent = `Updating cards with new insights...`;
-  
-  // Update each card
-  for (let i = 0; i < slidesToUpdate.length; i++) {
-    const index = slidesToUpdate[i];
-    
-    // Update loading message to show progress
-    elements.loadingMessage.textContent = 
-      `Updating ${gameState.slides[index]} card (${i + 1}/${slidesToUpdate.length})...`;
-    
-    // Update card
-    await updateSlideWithNewInsights(index);
-    
-    // Mark as modified
-    gameState.modifiedSlides.add(index);
-  }
-  
-  // Show completion
-  elements.instructionBar.textContent = 
-    `Updated cards with deeper insights.`;
-  
-  // If currently viewing an updated card, refresh content
-  if (gameState.modifiedSlides.has(gameState.currentIndex)) {
-    showInsightBadge();
-  }
-}
-
-// Update specific card with new insights
-async function updateSlideWithNewInsights(slideIndex) {
+// 新增：基于关联更新卡片
+async function updateSlideWithAssociation(association) {
   try {
-    // Create system prompt based on card type
-    const slideType = gameState.slides[slideIndex];
-    const systemPrompt = createUpdateSystemPrompt(slideType);
+    // 获取目标卡片和源卡片信息
+    const targetIndex = association.targetIndex;
+    const sourceIndex = association.sourceIndex;
+    const targetSlideType = gameState.slides[targetIndex];
+    const sourceSlideType = gameState.slides[sourceIndex];
     
-    // Create messages array
+    // 创建系统提示
+    const systemPrompt = `You are updating a card in a mystery game based on a strong logical connection.
+A new ${sourceSlideType} card has revealed information that directly connects to this ${targetSlideType} card.
+The connection is: ${association.reason}
+
+Guidelines for the update:
+- Start with "New insight:" to indicate this is updated information
+- Focus specifically on the logical connection between the cards
+- Keep the update to 1-2 sentences maximum
+- Be direct and clear about how this changes our understanding
+- The update should feel like an "aha!" moment that changes perspective`;
+
+    // 创建消息
     const messages = [
-      { role: "system", content: systemPrompt }
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Original ${targetSlideType} content: ${gameState.originalContent[targetIndex]}` },
+      { role: "user", content: `New ${sourceSlideType} content that creates the connection: ${gameState.content[sourceIndex]}` },
+      { role: "user", content: `Update this ${targetSlideType} card based on the strong connection. Keep it very brief (1-2 sentences).` }
     ];
     
-    // Add original content
-    messages.push({ 
-      role: "user", 
-      content: `Original ${slideType} content: ${gameState.originalContent[slideIndex]}`
-    });
-    
-    // Add all content discovered after this card
-    let laterDiscoveries = "Later discoveries:";
-    for (let i = slideIndex + 1; i < gameState.slides.length; i++) {
-      laterDiscoveries += `\n\n${gameState.slides[i]} Card: ${gameState.content[i]}`;
-    }
-    
-    messages.push({ role: "user", content: laterDiscoveries });
-    
-    // Request update
-    messages.push({ 
-      role: "user", 
-      content: `Update this ${slideType} card based on new discoveries. Keep it very brief (1-2 sentences).`
-    });
-    
-    // Call API
+    // 调用API
     const response = await openai.chat.completions.create({
       model: CONFIG.apiModel,
       messages: messages
     });
     
-    // Get updated content
+    // 获取更新内容
     const updatedContent = response.choices[0].message.content;
     
-    // Update game state
-    gameState.content[slideIndex] = updatedContent;
+    // 更新游戏状态
+    gameState.content[targetIndex] = updatedContent;
+    
+    // 标记为已修改
+    gameState.modifiedSlides.add(targetIndex);
+    
+    console.log(`Updated card ${targetIndex} based on connection with card ${sourceIndex}`);
     
   } catch (error) {
-    console.error(`Update card ${slideIndex} error:`, error);
-    // Fall back to original content on failure
-    gameState.content[slideIndex] = gameState.originalContent[slideIndex];
+    console.error(`Update card association error:`, error);
+    // 出错时保留原始内容
+    gameState.content[association.targetIndex] = gameState.originalContent[association.targetIndex];
   }
-}
-
-// Create system prompt for updating cards
-function createUpdateSystemPrompt(slideType) {
-  let basePrompt = `You are updating a card in a mystery game with new insights. Be extremely concise.
-
-Guidelines:
-- Start with "New insight:" to indicate this is updated information
-- Reveal one key new interpretation based on later discoveries
-- Keep the update to 1-2 sentences maximum
-- Focus only on key information, no extra details
-- Be direct and clear`;
-
-  return basePrompt;
 }
 
 // Submit theory answer
@@ -961,7 +980,7 @@ function updateInstructionBar() {
     case "investigating":
       if (gameState.insightLevel > 0) {
         elements.instructionBar.textContent = 
-          `In insight chain (level ${gameState.insightLevel}). Press T to process or continue exploring.`;
+          `Strong connection found! Press T to view insight or continue exploring.`;
       } else if (gameState.modifiedSlides.has(gameState.currentIndex)) {
         elements.instructionBar.textContent = "This content has been updated with new insights.";
       } else if (gameState.slides.length < CONFIG.minSlidesBeforeReveal) {
@@ -1062,7 +1081,10 @@ function resetGameState() {
       Evidence: 0,
       Location: 0,
       Action: 0
-    }
+    },
+    // 重置关联机制状态
+    associationCount: 0,
+    associationTargets: []
   };
   
   // Reset UI elements
