@@ -18,7 +18,10 @@ const CONFIG = {
   },
   // 添加关联触发概率配置
   associationThreshold: 0.75,  // 关联触发阈值，高于此值才触发关联
-  maxAssociationsPerGame: 3    // 每个游戏最多触发关联的次数
+  maxAssociationsPerGame: 3,   // 每个游戏最多触发关联的次数
+  // 添加DALL-E配置
+  imageStyle: "vintage film noir style, black and white, criminal scene, dramatic lighting, high contrast, grainy texture, cinematic composition", // DALL-E图片风格
+  imageSize: "1024x1024"       // 图片尺寸
 };
 
 // Game state
@@ -43,6 +46,9 @@ let gameState = {
   // 添加关联机制状态
   associationCount: 0,       // 当前已触发关联次数
   associationTargets: [],    // 存储强关联对象 [{sourceIndex, targetIndex, reason}]
+  // 添加图片状态
+  images: [],                // 存储每张幻灯片的图片URL
+  isGeneratingImage: false   // 图片生成状态
 };
 
 // Initialize OpenAI
@@ -262,6 +268,9 @@ async function createMysterySlide() {
     gameState.currentIndex = 0;
     gameState.phase = "investigating";
     
+    // 生成谜题图片
+    await generateImage(mysteryContent, gameState.currentIndex);
+    
     // Update UI
     updateUI();
     updatePhaseIndicator();
@@ -419,6 +428,9 @@ async function createSlide(slideType) {
     gameState.content.push(slideContent);
     gameState.originalContent.push(slideContent);
     gameState.currentIndex = gameState.slides.length - 1;
+    
+    // 生成图片
+    await generateImage(slideContent, gameState.currentIndex);
     
     // 修改：检查新卡片和现有卡片之间的强关联
     if (slideType === "Evidence" || slideType === "Character" || slideType === "Action" || slideType === "Location") {
@@ -734,6 +746,9 @@ Guidelines for the update:
     // 标记为已修改
     gameState.modifiedSlides.add(targetIndex);
     
+    // 生成新的图片
+    await generateImage(updatedContent, targetIndex);
+    
     console.log(`Updated card ${targetIndex} based on connection with card ${sourceIndex}`);
     
   } catch (error) {
@@ -918,6 +933,9 @@ function updateUI() {
       }
     }
     
+    // 更新图片显示
+    updateImageDisplay(gameState.currentIndex);
+    
     // Update card indicator
     elements.slideIndicator.textContent = 
       `${gameState.slides[gameState.currentIndex]} ${gameState.currentIndex + 1}/${gameState.slides.length}`;
@@ -935,6 +953,8 @@ function updateUI() {
       <p>Each mystery contains hidden layers of truth that will be revealed as your investigation deepens.</p>`;
     elements.slideIndicator.textContent = "Welcome";
     elements.revealPanel.classList.remove('active');
+    // 隐藏图片
+    elements.cardImage.style.display = 'none';
   }
   
   // Update instruction bar based on game phase
@@ -1084,7 +1104,10 @@ function resetGameState() {
     },
     // 重置关联机制状态
     associationCount: 0,
-    associationTargets: []
+    associationTargets: [],
+    // 重置图片状态
+    images: [],
+    isGeneratingImage: false
   };
   
   // Reset UI elements
@@ -1101,3 +1124,49 @@ window.OPENAI_API_KEY = ""; // Set directly here if not using .env
 // Initialize game when DOM is loaded
 window.setup = setup;
 document.addEventListener('DOMContentLoaded', setup);
+
+// 新增：生成图片函数
+async function generateImage(prompt, index) {
+  try {
+    // 设置图片生成状态
+    gameState.isGeneratingImage = true;
+    
+    // 构建完整的提示词
+    const fullPrompt = `${prompt}, ${CONFIG.imageStyle}`;
+    
+    // 调用DALL-E API生成图片
+    const response = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: fullPrompt,
+      n: 1,
+      size: CONFIG.imageSize
+    });
+    
+    // 获取图片URL
+    const imageUrl = response.data[0].url;
+    
+    // 存储图片URL
+    gameState.images[index] = imageUrl;
+    
+    // 更新UI显示图片
+    updateImageDisplay(index);
+    
+    // 重置图片生成状态
+    gameState.isGeneratingImage = false;
+    
+  } catch (error) {
+    console.error("Generate image error:", error);
+    gameState.isGeneratingImage = false;
+  }
+}
+
+// 新增：更新图片显示
+function updateImageDisplay(index) {
+  const imageContainer = document.getElementById('card-image');
+  if (gameState.images[index]) {
+    imageContainer.innerHTML = `<img src="${gameState.images[index]}" alt="Generated image">`;
+    imageContainer.style.display = 'block';
+  } else {
+    imageContainer.style.display = 'none';
+  }
+}
