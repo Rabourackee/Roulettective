@@ -1,56 +1,69 @@
-// 分层推理解谜游戏
-// 一个具有动态内容和分层揭示功能的解谜游戏
+// Layered Reasoning Mystery Game
+// A dynamic mystery game with layered reveal functionality
 
 import OpenAI from 'openai';
 
-// 游戏配置
+// Game configuration
 const CONFIG = {
-  apiModel: "gpt-4o",         // 使用的API模型
-  maxHistory: 10,             // 最大历史记录数
-  minSlidesBeforeReveal: 4,   // 进入揭示阶段前需要的最小卡片数
-  insightDuration: 5000       // 洞察标记显示时间（毫秒）
+  apiModel: "gpt-4o",          // API model to use
+  maxHistory: 10,              // Maximum history records
+  minSlidesBeforeReveal: 4,    // Minimum cards needed before reveal phase
+  insightDuration: 5000,       // Insight badge display time (milliseconds)
+  // 添加每种卡片类型的最大数量限制
+  maxCardCounts: {
+    Character: 5,              // 人物卡最大数量
+    Evidence: 6,               // 证据卡最大数量
+    Location: 4,               // 地点卡最大数量
+    Action: 6                  // 行动卡最大数量
+  }
 };
 
-// 游戏状态
+// Game state
 let gameState = {
-  slides: [],                // 卡片类型数组
-  content: [],               // 卡片内容数组
-  originalContent: [],       // 原始内容（更新前）
-  currentIndex: -1,          // 当前卡片索引
-  phase: "initial",          // 游戏阶段：initial, investigating, reveal, conclusion
-  insightChain: [],          // 洞察链跟踪栈
-  insightLevel: 0,           // 当前洞察深度
-  modifiedSlides: new Set(), // 已更新卡片的集合
-  previousMysteries: [],     // 之前谜题的主题数组（避免重复）
-  isLoading: false,          // 加载状态
-  correctAnswer: null        // 正确答案（理论阶段）
+  slides: [],                // Array of slide types
+  content: [],               // Array of slide contents
+  originalContent: [],       // Original content (before updates)
+  currentIndex: -1,          // Current slide index
+  phase: "initial",          // Game phase: initial, investigating, reveal, conclusion
+  insightChain: [],          // Insight chain tracking stack
+  insightLevel: 0,           // Current insight depth
+  modifiedSlides: new Set(), // Set of updated slides
+  previousMysteries: [],     // Array of previous mystery themes (to avoid repetition)
+  isLoading: false,          // Loading state
+  correctAnswer: null,       // Correct answer (for theory phase)
+  slideCounts: {             // Counts of each slide type
+    Character: 0,
+    Evidence: 0,
+    Location: 0,
+    Action: 0
+  }
 };
 
-// 初始化OpenAI
+// Initialize OpenAI
 let openai;
 
-// DOM元素
+// DOM elements
 const elements = {};
 
-// 检查API密钥是否存在
+// Check if API key exists
 function checkAPIKey() {
   try {
-    // 读取.env文件中的API密钥
+    // Read API key from .env file
     const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
     
     if (!apiKey) {
-      console.error("API密钥未找到。请确保.env文件中包含VITE_OPENAI_API_KEY");
+      console.error("API key not found. Make sure VITE_OPENAI_API_KEY is in your .env file");
       return false;
     }
     
-    console.log("API密钥已找到");
+    console.log("API key found");
     return true;
   } catch (error) {
-    console.error("检查API密钥时出错:", error);
+    console.error("Error checking API key:", error);
     
-    // 尝试使用全局变量作为后备
+    // Try using global variable as fallback
     if (typeof window.OPENAI_API_KEY !== 'undefined') {
-      console.log("使用全局变量中的API密钥");
+      console.log("Using API key from global variable");
       return true;
     }
     
@@ -58,52 +71,52 @@ function checkAPIKey() {
   }
 }
 
-// 初始化游戏
+// Initialize game
 async function setup() {
   try {
-    // 缓存DOM元素
+    // Cache DOM elements
     cacheElements();
     
-    // 检查API密钥
+    // Check API key
     if (!checkAPIKey()) {
-      elements.connectionStatus.textContent = "API错误";
+      elements.connectionStatus.textContent = "API Error";
       elements.connectionStatus.classList.add('error');
       elements.instructionBar.textContent = 
-        "API密钥未找到。请检查.env文件中是否包含VITE_OPENAI_API_KEY";
+        "API key not found. Please check if VITE_OPENAI_API_KEY is in your .env file";
       return;
     }
     
-    // 获取API密钥
+    // Get API key
     let apiKey;
     try {
       apiKey = import.meta.env.VITE_OPENAI_API_KEY;
     } catch (e) {
-      // 如果环境变量不可用，尝试使用全局变量
+      // If environment variable is not available, try global variable
       apiKey = window.OPENAI_API_KEY;
     }
     
-    // 初始化OpenAI客户端
+    // Initialize OpenAI client
     openai = new OpenAI({
       apiKey: apiKey,
       dangerouslyAllowBrowser: true 
     });
     
-    // 附加事件监听器
+    // Attach event listeners
     attachEventListeners();
     
-    // 设置UI
+    // Set up UI
     updateUI();
     
-    // 记录成功初始化
-    console.log("分层推理解谜游戏初始化成功");
+    // Log successful initialization
+    console.log("Layered Reasoning Mystery Game initialized successfully");
     
   } catch (error) {
-    showError(`初始化错误: ${error.message}`);
-    console.error("初始化错误:", error);
+    showError(`Initialization Error: ${error.message}`);
+    console.error("Initialization Error:", error);
   }
 }
 
-// 缓存DOM元素
+// Cache DOM elements
 function cacheElements() {
   elements.caseCard = document.getElementById('case-card');
   elements.cardContent = document.getElementById('card-content');
@@ -118,7 +131,7 @@ function cacheElements() {
   elements.depthLevel = document.getElementById('depth-level');
   elements.slideHistory = document.getElementById('slide-history');
   
-  // 控制按钮
+  // Control buttons
   elements.mysteryBtn = document.getElementById('btn-mystery');
   elements.evidenceBtn = document.getElementById('btn-evidence');
   elements.characterBtn = document.getElementById('btn-character');
@@ -126,18 +139,18 @@ function cacheElements() {
   elements.actionBtn = document.getElementById('btn-action');
   elements.revealBtn = document.getElementById('btn-reveal');
   
-  // 导航按钮
+  // Navigation buttons
   elements.backBtn = document.getElementById('btn-back');
   elements.forwardBtn = document.getElementById('btn-forward');
   elements.returnBtn = document.getElementById('btn-return');
   
-  // 理论按钮 - 获取所有带theory-btn类的按钮
+  // Theory buttons - get all buttons with theory-btn class
   elements.theoryBtns = document.querySelectorAll('.theory-btn');
 }
 
-// 附加事件监听器
+// Attach event listeners
 function attachEventListeners() {
-  // 控制按钮
+  // Control buttons
   elements.mysteryBtn.addEventListener('click', () => createMysterySlide());
   elements.evidenceBtn.addEventListener('click', () => createSlide('Evidence'));
   elements.characterBtn.addEventListener('click', () => createSlide('Character'));
@@ -145,12 +158,12 @@ function attachEventListeners() {
   elements.actionBtn.addEventListener('click', () => createSlide('Action'));
   elements.revealBtn.addEventListener('click', () => createSlide('Reveal'));
   
-  // 导航按钮
+  // Navigation buttons
   elements.backBtn.addEventListener('click', navigateBack);
   elements.forwardBtn.addEventListener('click', navigateForward);
   elements.returnBtn.addEventListener('click', navigateReturn);
   
-  // 理论按钮
+  // Theory buttons
   elements.theoryBtns.forEach(button => {
     button.addEventListener('click', event => {
       const theoryNumber = parseInt(event.target.dataset.theory);
@@ -158,20 +171,20 @@ function attachEventListeners() {
     });
   });
   
-  // 键盘导航
+  // Keyboard navigation
   document.addEventListener('keydown', handleKeyPress);
 }
 
-// 处理键盘快捷键
+// Handle keyboard shortcuts
 function handleKeyPress(event) {
-  // 加载中忽略按键
+  // Ignore keys if loading
   if (gameState.isLoading) return;
   
   const key = event.key.toLowerCase();
   
-  // 根据按键处理
+  // Handle based on key
   switch(key) {
-    // 卡片类型
+    // Card types
     case 'm': createMysterySlide(); break;
     case 'e': createSlide('Evidence'); break;
     case 'c': createSlide('Character'); break;
@@ -179,12 +192,12 @@ function handleKeyPress(event) {
     case 'a': createSlide('Action'); break;
     case 'r': createSlide('Reveal'); break;
     
-    // 导航
+    // Navigation
     case 'b': navigateBack(); break;
     case 'f': navigateForward(); break;
     case 't': navigateReturn(); break;
     
-    // 理论选择
+    // Theory selection
     case '1': case '2': case '3': case '4': case '5':
       if (gameState.phase === 'reveal') {
         submitTheory(parseInt(key));
@@ -193,32 +206,32 @@ function handleKeyPress(event) {
   }
 }
 
-// 创建一个新的谜题卡片
+// Create a new mystery card
 async function createMysterySlide() {
-  // 检查是否已在加载
+  // Check if already loading
   if (gameState.isLoading) return;
   
-  // 如果已经在游戏中，确认重置
+  // If already in a game, confirm reset
   if (gameState.slides.length > 0) {
-    if (!confirm("开始新谜题将重置当前进度。是否继续？")) {
+    if (!confirm("Starting a new mystery will reset your current progress. Continue?")) {
       return;
     }
   }
   
-  // 显示加载状态
-  setLoading(true, "正在生成新谜题...");
+  // Show loading state
+  setLoading(true, "Generating new mystery...");
   
   try {
-    // 重置游戏状态
+    // Reset game state
     resetGameState();
     
-    // 生成系统提示
+    // Generate system prompt
     const systemPrompt = createMysterySystemPrompt();
     
-    // 生成用户提示
-    const userPrompt = "生成一个全新的谋杀谜题场景。使用不同寻常的设定、谋杀方法或时代背景，使其区别于典型的谜题故事。以明确陈述核心谜题的句子结尾。";
+    // Generate user prompt
+    const userPrompt = "Create a short, concise murder mystery puzzle. End with a clear one-sentence statement of the core mystery to solve.";
     
-    // 调用API生成谜题
+    // Call API to generate mystery
     const messages = [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
@@ -229,61 +242,57 @@ async function createMysterySlide() {
       messages: messages
     });
     
-    // 获取谜题内容
+    // Get mystery content
     const mysteryContent = response.choices[0].message.content;
     
-    // 提取此谜题的标识符（用于避免重复）
+    // Extract this mystery's identifier (to avoid repetition)
     const mysteryIdentifier = extractMysteryIdentifier(mysteryContent);
     gameState.previousMysteries.push(mysteryIdentifier);
     
-    // 添加到游戏状态
+    // Add to game state
     gameState.slides.push("Mystery");
     gameState.content.push(mysteryContent);
     gameState.originalContent.push(mysteryContent);
     gameState.currentIndex = 0;
     gameState.phase = "investigating";
     
-    // 更新UI
+    // Update UI
     updateUI();
     updatePhaseIndicator();
     updateSlideHistory();
     
-    // 隐藏加载状态
+    // Hide loading state
     setLoading(false);
     
   } catch (error) {
-    console.error("创建谜题错误:", error);
-    showError(`创建谜题错误: ${error.message}`);
+    console.error("Create mystery error:", error);
+    showError(`Create mystery error: ${error.message}`);
     setLoading(false);
   }
 }
 
-// 创建谜题生成的系统提示
+// Create mystery generation system prompt
 function createMysterySystemPrompt() {
-  let prompt = `你是一位专家解谜作家，负责为互动解谜游戏创建独特的谜题场景。你的任务是创建一个引人入胜且独特的谋杀谜题开场。
+  let prompt = `You are a mystery game writer. Your task is to create a short, logical murder mystery.
+Guidelines:
+- Keep the story simple, logical, and solvable.
+- Use clear motives, locations, and limited characters.
+- Limit setting to 1-2 scenes. Keep it grounded.
+- Write only a single paragraph, with a one-sentence riddle at the end.
+- Response must be 50-100 words total, no more.
+- Do not include any meta information, instructions, or additional content.`;
 
-谜题指南:
-- 创建独特的场景、人物和谋杀场景，使其感觉新鲜且原创
-- 包含不寻常但合理的情况或看似不可能的情况
-- 设置一个看似无法解决的初始谜题
-- 暗示之后会揭示的更深层真相
-- 将描述控制在约200字左右
-- 以明确陈述需要解决的初始谜题结尾
-- 使你的写作具有氛围感、沉浸感和吸引力
-
-你的回答应该纯粹是叙事内容，不要包含对游戏本身的元引用。`;
-
-  // 添加以前的谜题以避免重复
+  // Add previous mysteries to avoid repetition
   if (gameState.previousMysteries.length > 0) {
-    prompt += `\n\n非常重要：使这个谜题与以下先前的谜题完全不同：${gameState.previousMysteries.join("，")}。使用不同的设定、时代背景、谋杀方法和人物类型。`;
+    prompt += `\n\nAvoid these previous themes: ${gameState.previousMysteries.join(", ")}`;
   }
 
   return prompt;
 }
 
-// 从谜题内容中提取标识符
+// Extract identifier from mystery content
 function extractMysteryIdentifier(content) {
-  // 获取第一句话或前50个字符
+  // Get first sentence or first 50 characters
   const firstSentenceMatch = content.match(/^([^.!?]+[.!?])/);
   if (firstSentenceMatch && firstSentenceMatch[1]) {
     return firstSentenceMatch[1].trim();
@@ -291,86 +300,98 @@ function extractMysteryIdentifier(content) {
   return content.substring(0, 50).trim();
 }
 
-// 创建指定类型的新卡片
+// Create a new slide of specified type
 async function createSlide(slideType) {
-  // 检查是否已在加载
+  // Check if already loading
   if (gameState.isLoading) return;
   
-  // 检查是否需要先从Mystery开始
+  // Check if need to start with Mystery first
   if (gameState.slides.length === 0) {
-    elements.instructionBar.textContent = "您需要先创建一个谜题卡片。按M开始。";
+    elements.instructionBar.textContent = "You need to create a Mystery card first. Press M to start.";
     return;
   }
   
-  // 检查是否已经处于结论阶段
+  // Check if already in conclusion phase
   if (gameState.phase === "conclusion") {
-    elements.instructionBar.textContent = "此谜题已解决。按M开始新的谜题。";
+    elements.instructionBar.textContent = "This mystery is solved. Press M to start a new mystery.";
     return;
   }
   
-  // 检查是否位于卡片末尾
+  // Check if at end of cards
   if (gameState.currentIndex < gameState.slides.length - 1) {
-    elements.instructionBar.textContent = "在添加新内容前，请导航至末尾。";
+    elements.instructionBar.textContent = "Navigate to the end before adding new content.";
     return;
   }
   
-  // 显示加载状态
-  setLoading(true, `正在生成${slideType}内容...`);
+  // 检查每种卡片类型的限制 - 修改此部分代码
+  if (slideType !== "Reveal" && slideType !== "Mystery") {
+    // 检查特定类型的卡片是否已达到最大数量
+    if (gameState.slideCounts[slideType] >= CONFIG.maxCardCounts[slideType]) {
+      elements.instructionBar.textContent = `已达到${slideType}卡的最大数量(${CONFIG.maxCardCounts[slideType]}张)，请尝试其他类型的卡片。`;
+      return;
+    }
+    
+    // 更新卡片计数
+    gameState.slideCounts[slideType]++;
+  }
+  
+  // Show loading state
+  setLoading(true, `Generating ${slideType} content...`);
   
   try {
-    // 生成系统提示
+    // Generate system prompt
     const systemPrompt = createSlideSystemPrompt(slideType);
     
-    // 准备现有卡片的上下文
+    // Prepare context of existing cards
     const messages = [{ role: "system", content: systemPrompt }];
     
-    // 添加所有先前的卡片作为上下文
+    // Add all previous cards as context
     for (let i = 0; i < gameState.slides.length; i++) {
       messages.push(
-        { role: "user", content: `${gameState.slides[i]} 卡片:` },
+        { role: "user", content: `${gameState.slides[i]} Card:` },
         { role: "assistant", content: gameState.content[i] }
       );
     }
     
-    // 添加对此卡片类型的特定请求
-    messages.push({ role: "user", content: `为此谜题生成一个${slideType}卡片。` });
+    // Add specific request for this card type
+    messages.push({ role: "user", content: `Generate a ${slideType} card for this mystery.` });
     
-    // Reveal卡片的特殊处理
+    // Special handling for Reveal card
     if (slideType === "Reveal") {
-      // 确保我们有足够的卡片
+      // Ensure we have enough cards
       if (gameState.slides.length < CONFIG.minSlidesBeforeReveal) {
         elements.instructionBar.textContent = 
-          `在揭示前需要更多调查。至少再添加${CONFIG.minSlidesBeforeReveal - gameState.slides.length}张卡片。`;
+          `Need more investigation before reveal. Add at least ${CONFIG.minSlidesBeforeReveal - gameState.slides.length} more cards.`;
         setLoading(false);
         return;
       }
       
-      // Reveal卡片的特殊系统提醒
+      // Special system reminder for Reveal card
       messages.push({
         role: "system",
-        content: "记住要创建正好5个理论，其中4个为真，1个为假。清晰地将它们编号为理论#1、理论#2等。"
+        content: "Remember to create exactly 5 theories, 4 true and 1 false. Clearly number them as Theory #1, Theory #2, etc."
       });
       
-      // 更新游戏阶段
+      // Update game phase
       gameState.phase = "reveal";
     }
     
-    // 调用API生成内容
+    // Call API to generate content
     const response = await openai.chat.completions.create({
       model: CONFIG.apiModel,
       messages: messages
     });
     
-    // 获取卡片内容
+    // Get card content
     const slideContent = response.choices[0].message.content;
     
-    // 对Reveal卡片，确定哪个理论是假的
+    // For Reveal card, determine which theory is false
     if (slideType === "Reveal") {
-      // 询问哪个理论是假的
+      // Ask which theory is false
       const falseTheoryMessages = [
         ...messages,
         { role: "assistant", content: slideContent },
-        { role: "user", content: "哪个理论编号包含错误陈述？只回复一个数字1-5。" }
+        { role: "user", content: "Which theory number contains a false statement? Reply with just one number 1-5." }
       ];
       
       const falseTheoryResponse = await openai.chat.completions.create({
@@ -381,124 +402,84 @@ async function createSlide(slideType) {
       const falseTheoryContent = falseTheoryResponse.choices[0].message.content;
       const falseTheoryNumber = parseInt(falseTheoryContent.match(/\d+/)[0]);
       
-      // 存储正确答案
+      // Store correct answer
       gameState.correctAnswer = falseTheoryNumber;
-      console.log(`理论#${falseTheoryNumber}是错误的`);
+      console.log(`Theory #${falseTheoryNumber} is incorrect`);
     }
     
-    // 添加到游戏状态
+    // Add to game state
     gameState.slides.push(slideType);
     gameState.content.push(slideContent);
     gameState.originalContent.push(slideContent);
     gameState.currentIndex = gameState.slides.length - 1;
     
-    // 对特定卡片，进入洞察链
+    // For specific cards, enter insight chain
     if (slideType === "Evidence" || slideType === "Character" || slideType === "Action") {
       enterInsightChain();
     }
     
-    // 更新UI
+    // Update UI
     updateUI();
     updatePhaseIndicator();
     updateSlideHistory();
     
-    // 隐藏加载状态
+    // Hide loading state
     setLoading(false);
     
   } catch (error) {
-    console.error(`创建${slideType}卡片错误:`, error);
-    showError(`创建${slideType}错误: ${error.message}`);
+    console.error(`Create ${slideType} card error:`, error);
+    showError(`Create ${slideType} error: ${error.message}`);
     setLoading(false);
   }
 }
 
-// 为不同卡片类型创建系统提示
+// Create system prompt for different card types
 function createSlideSystemPrompt(slideType) {
-  let basePrompt = `你正在为互动谜题调查体验提供支持。玩家通过添加不同类型的卡片来探索谜题。你的回应应简洁、有氛围感，并专注于纯粹的叙事内容。
+  let basePrompt = `You are assisting an interactive mystery game. Players insert slides to discover clues.
+Your job is to generate short and essential narrative content, always in English.
+Content must be extremely concise (max 2-3 sentences).
+Focus only on new information that directly relates to the mystery.
+All clues must make logical sense together.`;
 
-当前卡片请求: ${slideType}卡片
-
-卡片类型:
-- Mystery: 设置谜题的开场场景。
-- Evidence: 与案件相关的物理线索。
-- Character: 案件中涉及的人物，包括他们的陈述或证词。
-- Location: 与案件相关的场景。
-- Action: 揭示新信息的调查行动。
-- Reveal: 关于发生事件的理论总结。
-
-重要：谜题有玩家将逐步发现的隐藏真相层。包含可能随着更多信息的出现而被不同解释的元素。`;
-
-  // 根据卡片类型添加特定指示
+  // Add specific instructions based on card type
   switch(slideType) {
     case "Evidence":
-      return basePrompt + `\n\n对于这个Evidence卡片:
-- 揭示一个包含模糊细节的物理线索
-- 该证据应有可以被多种方式解释的细节
-- 包含微妙的元素，这些元素可能在后面变得更加重要
-- 将你的回应控制在1-2段有氛围感的描述内`;
+      return basePrompt + `\n\nFor this Evidence slide:\n- Describe one physical clue in 1-2 sentences maximum.\n- Be direct and factual, avoid speculation.\n- Focus on what's observed, not what it means.`;
       
     case "Character":
-      return basePrompt + `\n\n对于这个Character卡片:
-- 介绍一个与案件相关的人物
-- 包含他们对事件的陈述或证词
-- 添加微妙的不一致或暗示他们可能不完全诚实的提示
-- 他们的言行可能暗示隐藏的动机
-- 将你的回应控制在1-2段内，专注于人物和他们所说的内容`;
+      return basePrompt + `\n\nFor this Character slide:\n- Introduce one person in 1-2 sentences maximum.\n- Include only their name, role, and a very brief statement.\n- Keep it minimal but revealing.`;
       
     case "Location":
-      return basePrompt + `\n\n对于这个Location卡片:
-- 描述一个与谜题相关的场景
-- 包含可能具有重要性的环境细节
-- 一些元素现在可能看起来普通，但稍后可能变得重要
-- 空间可能包含关于那里发生事件的微妙线索
-- 将你的回应控制在1-2段有氛围感的描述内`;
+      return basePrompt + `\n\nFor this Location slide:\n- Describe one place in 1-2 sentences maximum.\n- Include just one distinctive detail.\n- Be direct and specific.`;
       
     case "Action":
-      return basePrompt + `\n\n对于这个Action卡片:
-- 描述侦探采取的调查行动
-- 这个行动应该揭示新信息或对现有线索的新视角
-- 它可能涉及询问、更仔细地检查证据或测试理论
-- 新信息应该为谜题增加复杂性
-- 将你的回应控制在1-2段内，专注于行动和它所揭示的内容`;
+      return basePrompt + `\n\nFor this Action slide:\n- Describe one investigation step in 1-2 sentences maximum.\n- Focus only on what is done and what it reveals.\n- Be concise and clear.`;
       
     case "Reveal":
-      return basePrompt + `\n\n对于这个Reveal卡片:
-1. 生成正好5个解释谜题方面的理论。
-2. 使其中4个理论为真，1个为假。
-3. 按以下格式呈现你的回应:
-   "理论#1: [第一个陈述]
-    理论#2: [第二个陈述]
-    理论#3: [第三个陈述]
-    理论#4: [第四个陈述]
-    理论#5: [第五个陈述]
-    
-    哪个理论是错误的？选择一个数字1-5。"
-4. 错误的理论应该是合理的，但包含一个微妙的错误。
-5. 每个理论应该是1-2句话，解决谜题的一个关键方面。
-6. 记住确切哪个理论是错误的 - 你将在后续中被询问。`;
+      return basePrompt + `\n\nFor this Reveal slide:\n1. Write exactly 5 theories (numbered 1-5).\n2. Each must be exactly 1 sentence.\n3. Four theories should be true, one false.\n4. The false one should be plausible but wrong.\n5. End with: 'Which theory is false?'`;
       
     default:
       return basePrompt;
   }
 }
 
-// 进入洞察链
+// Enter insight chain
 function enterInsightChain() {
-  // 仅在尚未处于洞察链中时进入
+  // Only enter if not already in insight chain
   if (gameState.insightLevel === 0) {
     gameState.insightLevel = 1;
     gameState.insightChain.push(gameState.currentIndex);
     elements.instructionBar.textContent = 
-      "您发现了一条新的洞察路径。添加更多卡片继续探索，或按T处理洞察。";
+      "New insight path found. Add more cards or press T to process insight.";
     updateInsightIndicator();
   }
 }
 
-// 更新洞察深度指示器
+// Update insight depth indicator
 function updateInsightIndicator() {
   elements.depthLevel.textContent = gameState.insightLevel;
   
-  // 如果在洞察链中，添加可视类
+  // If in insight chain, add visual class
   if (gameState.insightLevel > 0) {
     elements.depthLevel.parentElement.classList.add('active');
   } else {
@@ -506,12 +487,12 @@ function updateInsightIndicator() {
   }
 }
 
-// 后退导航
+// Navigate backward
 function navigateBack() {
   if (gameState.isLoading) return;
   
   if (gameState.slides.length === 0) {
-    elements.instructionBar.textContent = "还没有卡片。按M开始一个谜题。";
+    elements.instructionBar.textContent = "No cards yet. Press M to start a mystery.";
     return;
   }
   
@@ -523,16 +504,16 @@ function navigateBack() {
       elements.cardContent.classList.remove('transition');
     }, 400);
   } else {
-    elements.instructionBar.textContent = "已经在第一张卡片。";
+    elements.instructionBar.textContent = "Already at the first card.";
   }
 }
 
-// 前进导航
+// Navigate forward
 function navigateForward() {
   if (gameState.isLoading) return;
   
   if (gameState.slides.length === 0) {
-    elements.instructionBar.textContent = "还没有卡片。按M开始一个谜题。";
+    elements.instructionBar.textContent = "No cards yet. Press M to start a mystery.";
     return;
   }
   
@@ -544,68 +525,68 @@ function navigateForward() {
       elements.cardContent.classList.remove('transition');
     }, 400);
   } else {
-    elements.instructionBar.textContent = "已经在最后一张卡片。添加更多内容继续。";
+    elements.instructionBar.textContent = "Already at the last card. Add more content to continue.";
   }
 }
 
-// 返回导航（从洞察链）
+// Return navigation (from insight chain)
 async function navigateReturn() {
   if (gameState.isLoading) return;
   
-  // 检查是否在洞察链中
+  // Check if in insight chain
   if (gameState.insightLevel <= 0) {
-    elements.instructionBar.textContent = "不在洞察链中。";
+    elements.instructionBar.textContent = "Not in an insight chain.";
     return;
   }
   
-  // 显示加载状态
-  setLoading(true, "处理洞察并更新早期内容...");
+  // Show loading state
+  setLoading(true, "Processing insight...");
   
   try {
-    // 获取要返回的索引
+    // Get index to return to
     const returnIndex = gameState.insightChain.pop();
     
-    // 减少洞察级别
+    // Reduce insight level
     gameState.insightLevel--;
     
-    // 如果完全退出链，更新早期卡片
+    // If exiting chain completely, update earlier cards
     if (gameState.insightLevel === 0) {
       await updateSlidesWithNewInsights();
     }
     
-    // 转到返回索引
+    // Go to return index
     gameState.currentIndex = returnIndex;
     
-    // 更新UI
+    // Update UI
     updateUI();
     updateInsightIndicator();
     updateSlideHistory();
     
-    // 隐藏加载
+    // Hide loading
     setLoading(false);
     
   } catch (error) {
-    console.error("从洞察链返回错误:", error);
-    showError(`处理洞察错误: ${error.message}`);
+    console.error("Return from insight chain error:", error);
+    showError(`Process insight error: ${error.message}`);
     setLoading(false);
   }
 }
 
-// 完成洞察链后更新卡片
+// Update cards after completing insight chain
 async function updateSlidesWithNewInsights() {
-  // 识别应该更新的卡片
+  // Identify cards that should be updated
   const slidesToUpdate = [];
   
-  // 根据发现找出应该更新的卡片
+  // Find out which cards should be updated based on discoveries
   for (let i = 0; i < gameState.slides.length - 1; i++) {
-    // 跳过已更新的卡片
+    // Skip already updated cards
     if (gameState.modifiedSlides.has(i)) {
       continue;
     }
     
-    // Character卡片受Evidence或Action影响
+    // Character cards affected by Evidence or Action
     if (gameState.slides[i] === "Character") {
-      // 寻找后续的Evidence或Action卡片
+      // Look for subsequent Evidence or Action cards
       let hasRelevantLaterSlide = false;
       for (let j = i + 1; j < gameState.slides.length; j++) {
         if (gameState.slides[j] === "Evidence" || gameState.slides[j] === "Action") {
@@ -619,9 +600,9 @@ async function updateSlidesWithNewInsights() {
       }
     }
     
-    // Evidence卡片受Character或Action影响
+    // Evidence cards affected by Character or Action
     if (gameState.slides[i] === "Evidence") {
-      // 寻找后续的Character或Action卡片
+      // Look for subsequent Character or Action cards
       let hasRelevantLaterSlide = false;
       for (let j = i + 1; j < gameState.slides.length; j++) {
         if (gameState.slides[j] === "Character" || gameState.slides[j] === "Action") {
@@ -635,222 +616,191 @@ async function updateSlidesWithNewInsights() {
       }
     }
     
-    // Location卡片受任何后续卡片影响
+    // Location cards affected by any subsequent card
     if (gameState.slides[i] === "Location") {
-      // 检查是否有任何后续卡片
+      // Check if there are any subsequent cards
       if (i < gameState.slides.length - 1) {
         slidesToUpdate.push(i);
       }
     }
   }
   
-  // 如果没有要更新的卡片则跳过
+  // Skip if no cards to update
   if (slidesToUpdate.length === 0) {
-    elements.instructionBar.textContent = "没有可以用新洞察更新的卡片。";
+    elements.instructionBar.textContent = "No cards to update with new insights.";
     return;
   }
   
-  // 处理时更新指示
-  elements.instructionBar.textContent = `正在用新洞察更新${slidesToUpdate.length}张卡片...`;
+  // Update indicator while processing
+  elements.instructionBar.textContent = `Updating cards with new insights...`;
   
-  // 更新每张卡片
+  // Update each card
   for (let i = 0; i < slidesToUpdate.length; i++) {
     const index = slidesToUpdate[i];
     
-    // 更新加载消息显示进度
+    // Update loading message to show progress
     elements.loadingMessage.textContent = 
-      `正在更新${gameState.slides[index]}卡片（${i + 1}/${slidesToUpdate.length}）...`;
+      `Updating ${gameState.slides[index]} card (${i + 1}/${slidesToUpdate.length})...`;
     
-    // 更新卡片
+    // Update card
     await updateSlideWithNewInsights(index);
     
-    // 标记为已修改
+    // Mark as modified
     gameState.modifiedSlides.add(index);
   }
   
-  // 显示完成
+  // Show completion
   elements.instructionBar.textContent = 
-    `已用更深层洞察更新${slidesToUpdate.length}张卡片。`;
+    `Updated cards with deeper insights.`;
   
-  // 如果当前查看的是已更新的卡片，刷新内容
+  // If currently viewing an updated card, refresh content
   if (gameState.modifiedSlides.has(gameState.currentIndex)) {
     showInsightBadge();
   }
 }
 
-// 用新洞察更新特定卡片
+// Update specific card with new insights
 async function updateSlideWithNewInsights(slideIndex) {
   try {
-    // 基于卡片类型创建系统提示
+    // Create system prompt based on card type
     const slideType = gameState.slides[slideIndex];
     const systemPrompt = createUpdateSystemPrompt(slideType);
     
-    // 创建消息数组
+    // Create messages array
     const messages = [
       { role: "system", content: systemPrompt }
     ];
     
-    // 添加原始内容
+    // Add original content
     messages.push({ 
       role: "user", 
-      content: `原始${slideType}内容: ${gameState.originalContent[slideIndex]}`
+      content: `Original ${slideType} content: ${gameState.originalContent[slideIndex]}`
     });
     
-    // 添加此卡片之后发现的所有内容
-    let laterDiscoveries = "后续发现:";
+    // Add all content discovered after this card
+    let laterDiscoveries = "Later discoveries:";
     for (let i = slideIndex + 1; i < gameState.slides.length; i++) {
-      laterDiscoveries += `\n\n${gameState.slides[i]}卡片: ${gameState.content[i]}`;
+      laterDiscoveries += `\n\n${gameState.slides[i]} Card: ${gameState.content[i]}`;
     }
     
     messages.push({ role: "user", content: laterDiscoveries });
     
-    // 请求更新
+    // Request update
     messages.push({ 
       role: "user", 
-      content: `请基于这些后续发现来更新${slideType}卡片，揭示更深层的洞察。`
+      content: `Update this ${slideType} card based on new discoveries. Keep it very brief (1-2 sentences).`
     });
     
-    // 调用API
+    // Call API
     const response = await openai.chat.completions.create({
       model: CONFIG.apiModel,
       messages: messages
     });
     
-    // 获取更新内容
+    // Get updated content
     const updatedContent = response.choices[0].message.content;
     
-    // 更新游戏状态
+    // Update game state
     gameState.content[slideIndex] = updatedContent;
     
   } catch (error) {
-    console.error(`更新卡片${slideIndex}错误:`, error);
-    // 失败时回退到原始内容
+    console.error(`Update card ${slideIndex} error:`, error);
+    // Fall back to original content on failure
     gameState.content[slideIndex] = gameState.originalContent[slideIndex];
   }
 }
 
-// 创建更新卡片的系统提示
+// Create system prompt for updating cards
 function createUpdateSystemPrompt(slideType) {
-  let basePrompt = `你正在更新互动谜题游戏中的卡片，以揭示基于新发现的更深层洞察。玩家已经发现了新信息，让原始内容呈现出新的视角。
+  let basePrompt = `You are updating a card in a mystery game with new insights. Be extremely concise.
 
-你的任务是重写${slideType}卡片内容，揭示更深层的真相。
+Guidelines:
+- Start with "New insight:" to indicate this is updated information
+- Reveal one key new interpretation based on later discoveries
+- Keep the update to 1-2 sentences maximum
+- Focus only on key information, no extra details
+- Be direct and clear`;
 
-指南:
-- 以"进一步调查后..."或类似短语开始，表明这是新的洞察
-- 揭示更深层的真相、矛盾或对原始信息的新解释
-- 不要完全否定原始内容，而是添加复杂性和细微差别
-- 保持与原始内容大致相同的长度
-- 专注于纯叙事内容
-- 使更深层的真相感觉像是改变了玩家对谜题理解的启示`;
-
-  // 根据卡片类型添加特定指示
-  switch(slideType) {
-    case "Character":
-      return basePrompt + `\n\n对于这个Character卡片:
-- 考虑揭示他们证词中的矛盾
-- 展示他们的动机可能比最初呈现的更复杂
-- 或许他们知道的比最初承认的更多
-- 添加欺骗或暗藏动机的微妙迹象
-- 不要完全揭穿他们，而是为他们的角色添加层次`;
-      
-    case "Evidence":
-      return basePrompt + `\n\n对于这个Evidence卡片:
-- 揭示最初未被注意到的证据新细节
-- 展示与其他发现的联系，这些联系之前并不明显
-- 证据可能被误解或被篡改
-- 之前看似不重要的细节现在可能有了新的意义
-- 考虑揭示一个改变证据意义的隐藏方面`;
-      
-    case "Location":
-      return basePrompt + `\n\n对于这个Location卡片:
-- 揭示之前未被注意到的位置细节
-- 空间布局可能以之前未理解的方式具有重要性
-- 该位置可能被用于与假设不同的目的
-- 微妙的痕迹或特征可能表明那里发生过重要事件
-- 这个位置与其他位置之间的关系可能很重要`;
-      
-    default:
-      return basePrompt;
-  }
+  return basePrompt;
 }
 
-// 提交理论答案
+// Submit theory answer
 async function submitTheory(theoryNumber) {
   if (gameState.isLoading) return;
   if (gameState.phase !== "reveal") return;
   
-  // 显示加载
-  setLoading(true, "基于您的理论选择生成结论...");
+  // Show loading
+  setLoading(true, "Generating conclusion...");
   
   try {
-    // 检查是否正确
+    // Check if correct
     const isCorrect = (theoryNumber === gameState.correctAnswer);
     
-    // 为结论创建消息
+    // Create messages for conclusion
     const messages = [
       {
         role: "system",
-        content: `基于玩家是否正确识别出错误理论来生成谜题的结论。
+        content: `Generate a brief conclusion for the mystery based on whether the player correctly identified the false theory.
 
 ${isCorrect ? 
-  "他们正确识别了错误理论。提供一个全面而令人满意的解决方案，解释调查过程中发现的所有线索和矛盾。" : 
-  `他们错误地认为理论#${theoryNumber}是错误的，而实际上理论#${gameState.correctAnswer}才是错误的。提供一个听起来合理但缺乏关键洞察的有缺陷结论。`}
+  "They correctly identified the false theory. Provide a concise solution in 2-3 sentences." : 
+  `They incorrectly thought Theory #${theoryNumber} was false, when Theory #${gameState.correctAnswer} was false. Provide a brief flawed conclusion.`}
 
-用戏剧性、有氛围感的风格写作，将谜题清晰地带到结尾。解释所有关键元素（角色、证据、位置）如何在解决方案中结合在一起。`
+Keep it under 100 words total.`
       }
     ];
     
-    // 添加所有卡片历史
+    // Add all card history
     for (let i = 0; i < gameState.slides.length; i++) {
       messages.push(
-        { role: "user", content: `${gameState.slides[i]}卡片:` },
+        { role: "user", content: `${gameState.slides[i]} Card:` },
         { role: "assistant", content: gameState.content[i] }
       );
     }
     
-    // 添加理论选择
+    // Add theory choice
     messages.push({ 
       role: "user", 
       content: isCorrect ? 
-        `我认为理论#${theoryNumber}是错误的。` : 
-        `我认为理论#${theoryNumber}是错误的（但实际上理论#${gameState.correctAnswer}才是错误的）。`
+        `I think Theory #${theoryNumber} is false.` : 
+        `I think Theory #${theoryNumber} is false (but actually Theory #${gameState.correctAnswer} is false).`
     });
     
-    // 调用API获取结论
+    // Call API to get conclusion
     const response = await openai.chat.completions.create({
       model: CONFIG.apiModel,
       messages: messages
     });
     
-    // 获取结论
+    // Get conclusion
     const conclusion = response.choices[0].message.content;
     
-    // 添加到游戏状态
+    // Add to game state
     gameState.slides.push("Conclusion");
     gameState.content.push(conclusion);
     gameState.originalContent.push(conclusion);
     gameState.currentIndex = gameState.slides.length - 1;
     gameState.phase = "conclusion";
     
-    // 更新UI
+    // Update UI
     updateUI();
     updatePhaseIndicator();
     updateSlideHistory();
     
-    // 隐藏理论面板
+    // Hide theory panel
     elements.revealPanel.classList.remove('active');
     
-    // 隐藏加载
+    // Hide loading
     setLoading(false);
     
   } catch (error) {
-    console.error("提交理论错误:", error);
-    showError(`生成结论错误: ${error.message}`);
+    console.error("Submit theory error:", error);
+    showError(`Generate conclusion error: ${error.message}`);
     setLoading(false);
   }
 }
 
-// 临时显示洞察标记
+// Temporarily show insight badge
 function showInsightBadge() {
   elements.insightBadge.classList.add('visible');
   setTimeout(() => {
@@ -858,8 +808,8 @@ function showInsightBadge() {
   }, CONFIG.insightDuration);
 }
 
-// 设置加载状态
-function setLoading(isLoading, message = "处理中...") {
+// Set loading state
+function setLoading(isLoading, message = "Processing...") {
   gameState.isLoading = isLoading;
   
   if (isLoading) {
@@ -870,38 +820,38 @@ function setLoading(isLoading, message = "处理中...") {
   }
 }
 
-// 显示错误消息
+// Show error message
 function showError(message) {
-  elements.connectionStatus.textContent = "错误";
+  elements.connectionStatus.textContent = "Error";
   elements.connectionStatus.classList.add('error');
   elements.instructionBar.textContent = message;
   
-  // 记录到控制台
+  // Log to console
   console.error(message);
   
-  // 延迟后重置错误状态
+  // Reset error state after delay
   setTimeout(() => {
-    elements.connectionStatus.textContent = "API就绪";
+    elements.connectionStatus.textContent = "API Ready";
     elements.connectionStatus.classList.remove('error');
   }, 5000);
 }
 
-// 基于当前游戏状态更新UI
+// Update UI based on current game state
 function updateUI() {
-  // 更新卡片内容
+  // Update card content
   if (gameState.currentIndex >= 0 && gameState.currentIndex < gameState.content.length) {
-    // 处理Reveal卡片的特殊格式
+    // Special handling for Reveal card format
     if (gameState.slides[gameState.currentIndex] === "Reveal") {
-      // 格式化理论
+      // Format theories
       const content = gameState.content[gameState.currentIndex];
       let formattedContent = '';
       
-      // 按行分割
+      // Split by lines
       const lines = content.split('\n');
       for (const line of lines) {
         if (line.trim() === '') continue;
         
-        if (line.trim().startsWith('理论#') || line.trim().startsWith('Theory #')) {
+        if (line.trim().startsWith('Theory #')) {
           formattedContent += `<div class="theory-item">${line}</div>`;
         } else {
           formattedContent += `<p>${line}</p>`;
@@ -910,25 +860,32 @@ function updateUI() {
       
       elements.cardContent.innerHTML = formattedContent;
       elements.revealPanel.classList.add('active');
+      
+      // Update button text to English
+      elements.theoryBtns.forEach((btn, index) => {
+        btn.textContent = `Theory ${index + 1}`;
+      });
+      document.querySelector('.theory-prompt').textContent = "Which theory is false?";
+      
     } else {
-      // 普通卡片
+      // Regular cards
       elements.revealPanel.classList.remove('active');
       
-      // 检查此卡片是否已更新
+      // Check if this card has been updated
       if (gameState.modifiedSlides.has(gameState.currentIndex)) {
-        // 使用洞察高亮格式化
+        // Format with insight highlighting
         const content = gameState.content[gameState.currentIndex];
         
-        // 为更新内容添加特殊类
+        // Add special class for updated content
         elements.cardContent.className = "card-content updated";
         
-        // 如果内容以"进一步调查"或类似内容开头，包装在洞察div中
-        if (/^进一步调查|^仔细查看|^新的洞察|^重新考虑/i.test(content)) {
-          const firstParagraphEnd = content.indexOf('\n\n');
-          if (firstParagraphEnd > 0) {
-            const firstParagraph = content.substring(0, firstParagraphEnd);
-            const restContent = content.substring(firstParagraphEnd);
-            elements.cardContent.innerHTML = `<div class="insight-highlight">${firstParagraph}</div>${restContent}`;
+        // If content starts with "New insight:" or similar, wrap in insight div
+        if (/^New insight:|^Upon further|^A closer look/i.test(content)) {
+          const firstSentenceEnd = content.indexOf('.');
+          if (firstSentenceEnd > 0) {
+            const firstPart = content.substring(0, firstSentenceEnd + 1);
+            const restContent = content.substring(firstSentenceEnd + 1);
+            elements.cardContent.innerHTML = `<div class="insight-highlight">${firstPart}</div>${restContent}`;
           } else {
             elements.cardContent.textContent = content;
           }
@@ -936,114 +893,140 @@ function updateUI() {
           elements.cardContent.textContent = content;
         }
       } else {
-        // 常规未更新内容
+        // Regular unmodified content
         elements.cardContent.className = "card-content";
         elements.cardContent.textContent = gameState.content[gameState.currentIndex];
       }
     }
     
-    // 更新卡片指示器
+    // Update card indicator
     elements.slideIndicator.textContent = 
       `${gameState.slides[gameState.currentIndex]} ${gameState.currentIndex + 1}/${gameState.slides.length}`;
     
-    // 如需要添加已更新指示器
+    // Add updated indicator if needed
     if (gameState.modifiedSlides.has(gameState.currentIndex)) {
       elements.slideIndicator.textContent += " ★";
     }
     
   } else {
-    // 尚无卡片
-    elements.cardContent.textContent = "欢迎使用分层推理解谜游戏。按M键开始一个新的调查。";
-    elements.slideIndicator.textContent = "欢迎";
+    // No cards yet
+    elements.cardContent.innerHTML = `
+      <p>Welcome to the Layered Reasoning Mystery Game.</p>
+      <p>Press <kbd>M</kbd> to start a new investigation.</p>
+      <p>Each mystery contains hidden layers of truth that will be revealed as your investigation deepens.</p>`;
+    elements.slideIndicator.textContent = "Welcome";
     elements.revealPanel.classList.remove('active');
   }
   
-  // 基于游戏阶段更新指示栏
+  // Update instruction bar based on game phase
   updateInstructionBar();
   
-  // 更新洞察指示器
+  // Update insight indicator
   updateInsightIndicator();
+  
+  // Update button labels to English
+  updateButtonLabels();
 }
 
-// 基于当前状态更新指示栏
+// Update button labels to English
+function updateButtonLabels() {
+  if (elements.mysteryBtn) elements.mysteryBtn.innerHTML = 'M<span>Mystery</span>';
+  if (elements.evidenceBtn) elements.evidenceBtn.innerHTML = 'E<span>Evidence</span>';
+  if (elements.characterBtn) elements.characterBtn.innerHTML = 'C<span>Character</span>';
+  if (elements.locationBtn) elements.locationBtn.innerHTML = 'L<span>Location</span>';
+  if (elements.actionBtn) elements.actionBtn.innerHTML = 'A<span>Action</span>';
+  if (elements.revealBtn) elements.revealBtn.innerHTML = 'R<span>Reveal</span>';
+  
+  if (elements.backBtn) elements.backBtn.innerHTML = '<span>⯇</span>Back (B)';
+  if (elements.forwardBtn) elements.forwardBtn.innerHTML = 'Forward (F)<span>⯈</span>';
+  if (elements.returnBtn) elements.returnBtn.innerHTML = '<span>⟲</span>Return (T)';
+  
+  // Update depth indicator
+  document.querySelector('.depth-label').textContent = 'Insight Depth:';
+  
+  // Update insight badge
+  elements.insightBadge.textContent = 'New Insight';
+}
+
+// Update instruction bar based on current state
 function updateInstructionBar() {
-  // 加载中跳过
+  // Skip if loading
   if (gameState.isLoading) return;
   
   switch(gameState.phase) {
     case "initial":
-      elements.instructionBar.textContent = "按M键开始一个新的谜题调查。";
+      elements.instructionBar.textContent = "Press M key to start a new mystery investigation.";
       break;
       
     case "investigating":
       if (gameState.insightLevel > 0) {
         elements.instructionBar.textContent = 
-          `处于洞察链中（级别${gameState.insightLevel}）。按T键处理或继续探索。`;
+          `In insight chain (level ${gameState.insightLevel}). Press T to process or continue exploring.`;
       } else if (gameState.modifiedSlides.has(gameState.currentIndex)) {
-        elements.instructionBar.textContent = "此内容已用新洞察更新。";
+        elements.instructionBar.textContent = "This content has been updated with new insights.";
       } else if (gameState.slides.length < CONFIG.minSlidesBeforeReveal) {
         elements.instructionBar.textContent = 
-          `添加更多卡片(E/C/L/A)进行调查。揭示前还需${CONFIG.minSlidesBeforeReveal - gameState.slides.length}张卡片。`;
+          `Add more cards (E/C/L/A) to investigate. Need ${CONFIG.minSlidesBeforeReveal - gameState.slides.length} more cards before reveal.`;
       } else {
         elements.instructionBar.textContent = 
-          "添加卡片进行调查(E/C/L/A)。用F/B导航。准备好时按R揭示。";
+          "Add cards to investigate (E/C/L/A). Navigate with F/B. Press R for reveal when ready.";
       }
       break;
       
     case "reveal":
-      elements.instructionBar.textContent = "哪个理论是错误的？选择一个理论编号(1-5)。";
+      elements.instructionBar.textContent = "Which theory is false? Select a theory number (1-5).";
       break;
       
     case "conclusion":
-      elements.instructionBar.textContent = "谜题已解决。按M键开始一个新的调查。";
+      elements.instructionBar.textContent = "Mystery solved. Press M to start a new investigation.";
       break;
   }
 }
 
-// 更新阶段指示器
+// Update phase indicator
 function updatePhaseIndicator() {
   let phaseText = "";
   
   switch(gameState.phase) {
     case "initial":
-      phaseText = "阶段: 等待新谜题";
+      phaseText = "Phase: Waiting for new mystery";
       break;
     case "investigating":
-      phaseText = "阶段: 主动调查";
+      phaseText = "Phase: Active investigation";
       break;
     case "reveal":
-      phaseText = "阶段: 理论评估";
+      phaseText = "Phase: Theory evaluation";
       break;
     case "conclusion":
-      phaseText = "阶段: 案件结束";
+      phaseText = "Phase: Case closed";
       break;
   }
   
   elements.gamePhase.textContent = phaseText;
 }
 
-// 更新卡片历史显示
+// Update slide history display
 function updateSlideHistory() {
-  // 清除当前历史
+  // Clear current history
   elements.slideHistory.innerHTML = "";
   
-  // 添加每张卡片
+  // Add each card
   for (let i = 0; i < gameState.slides.length; i++) {
     const historyItem = document.createElement('div');
     historyItem.className = 'history-item';
     historyItem.textContent = `${i + 1}: ${gameState.slides[i]}`;
     
-    // 当前卡片添加active类
+    // Add active class for current card
     if (i === gameState.currentIndex) {
       historyItem.classList.add('active');
     }
     
-    // 已修改卡片添加updated类
+    // Add updated class for modified cards
     if (gameState.modifiedSlides.has(i)) {
       historyItem.classList.add('updated');
     }
     
-    // 添加点击事件导航
+    // Add click event to navigate
     historyItem.addEventListener('click', () => {
       if (!gameState.isLoading) {
         gameState.currentIndex = i;
@@ -1051,17 +1034,17 @@ function updateSlideHistory() {
       }
     });
     
-    // 添加到历史
+    // Add to history
     elements.slideHistory.appendChild(historyItem);
   }
 }
 
-// 重置游戏状态
+// Reset game state
 function resetGameState() {
-  // 保留先前的谜题以确保唯一性
+  // Keep previous mysteries to ensure uniqueness
   const prevMysteries = [...gameState.previousMysteries];
   
-  // 重置状态
+  // Reset state
   gameState = {
     slides: [],
     content: [],
@@ -1073,10 +1056,16 @@ function resetGameState() {
     modifiedSlides: new Set(),
     previousMysteries: prevMysteries,
     isLoading: false,
-    correctAnswer: null
+    correctAnswer: null,
+    slideCounts: {
+      Character: 0,
+      Evidence: 0,
+      Location: 0,
+      Action: 0
+    }
   };
   
-  // 重置UI元素
+  // Reset UI elements
   elements.revealPanel.classList.remove('active');
   elements.cardContent.className = "card-content";
   elements.insightBadge.classList.remove('visible');
@@ -1084,9 +1073,9 @@ function resetGameState() {
   updatePhaseIndicator();
 }
 
-// 添加对全局变量API密钥的支持（如果需要）
-window.OPENAI_API_KEY = ""; // 如果不使用.env，可以在这里直接设置
+// Support for global variable API key (if needed)
+window.OPENAI_API_KEY = ""; // Set directly here if not using .env
 
-// 当DOM加载完成时初始化游戏
+// Initialize game when DOM is loaded
 window.setup = setup;
 document.addEventListener('DOMContentLoaded', setup);
