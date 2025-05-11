@@ -860,35 +860,96 @@ function updatePhaseIndicator() {
 
 // Update slide history display
 function updateSlideHistory() {
-  // Clear current history
+  // 清空历史
   elements.slideHistory.innerHTML = "";
-  
-  // Add each card
+
+  // 没有slide时不显示
+  if (!gameState.slides || gameState.slides.length === 0) return;
+
+  // 用fragment提升性能
+  const fragment = document.createDocumentFragment();
+
   for (let i = 0; i < gameState.slides.length; i++) {
     const historyItem = document.createElement('div');
     historyItem.className = 'history-item';
-    historyItem.textContent = `${i + 1}: ${gameState.slides[i]}`;
     
-    // Add active class for current card
+    // 格式化显示内容
+    const slideType = gameState.slides[i];
+    const slideNumber = i + 1;
+    let displayText = '';
+    
+    // 根据不同slide类型设置不同的显示格式
+    switch(slideType) {
+      case 'Mystery':
+        displayText = `ENTRY ${slideNumber}: MYSTERY SCENE DOCUMENTED`;
+        break;
+      case 'Evidence':
+        displayText = `ENTRY ${slideNumber}: EVIDENCE COLLECTED`;
+        break;
+      case 'Character':
+        displayText = `ENTRY ${slideNumber}: WITNESS INTERVIEWED`;
+        break;
+      case 'Location':
+        displayText = `ENTRY ${slideNumber}: LOCATION INVESTIGATED`;
+        break;
+      case 'Action':
+        displayText = `ENTRY ${slideNumber}: ACTION TAKEN`;
+        break;
+      case 'Reveal':
+        displayText = `ENTRY ${slideNumber}: THEORIES FORMULATED`;
+        break;
+      case 'Conclusion':
+        displayText = `ENTRY ${slideNumber}: CASE CLOSED`;
+        break;
+      default:
+        displayText = `ENTRY ${slideNumber}: ${slideType.toUpperCase()}`;
+    }
+    
+    historyItem.textContent = displayText;
+    historyItem.setAttribute('data-index', i);
+    historyItem.setAttribute('data-slide-type', slideType);
+
+    // 高亮当前slide
     if (i === gameState.currentIndex) {
       historyItem.classList.add('active');
     }
     
-    // Add updated class for modified cards
+    // 标记已更新slide
     if (gameState.modifiedSlides.has(i)) {
       historyItem.classList.add('updated');
     }
-    
-    // Add click event to navigate
-    historyItem.addEventListener('click', () => {
-      if (!gameState.isLoading) {
+
+    // 内容预览tooltip
+    const preview = gameState.content[i]
+      ? gameState.content[i].replace(/<[^>]+>/g, '').substring(0, 80) + (gameState.content[i].length > 80 ? '...' : '')
+      : '';
+    historyItem.title = preview;
+
+    // 点击跳转
+    historyItem.addEventListener('click', async () => {
+      if (gameState.currentIndex !== i) {
         gameState.currentIndex = i;
-        updateUI();
+        await updateUI();
+        elements.cardContent.classList.add('transition');
+        setTimeout(() => {
+          elements.cardContent.classList.remove('transition');
+        }, 400);
       }
     });
-    
-    // Add to history
-    elements.slideHistory.appendChild(historyItem);
+
+    fragment.appendChild(historyItem);
+  }
+
+  elements.slideHistory.appendChild(fragment);
+
+  // 自动滚动到当前项
+  if (gameState.currentIndex >= 0 && gameState.currentIndex < gameState.slides.length) {
+    const activeItem = elements.slideHistory.querySelector('.history-item.active');
+    if (activeItem) {
+      requestAnimationFrame(() => {
+        activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      });
+    }
   }
 }
 
@@ -971,8 +1032,10 @@ async function generateImage(prompt, index) {
   try {
     // 先用AI精炼prompt
     const shortPrompt = await summarizeForDalle(prompt);
+    // ======2025511update: 强制截断到300字符以内
+    const safeShortPrompt = shortPrompt.slice(0, 300).trim();
     // 再走原有流程
-    const imagePrompt = enhancePromptForDalle(shortPrompt);
+    const imagePrompt = enhancePromptForDalle(safeShortPrompt);
     console.log(`Enhanced DALL-E prompt: ${imagePrompt}`);
     // Call DALL-E API to generate image
     const response = await openai.images.generate({
@@ -1005,11 +1068,26 @@ async function generateImage(prompt, index) {
 
 // ======2025511update: enhancePromptForDalle直接拼接风格关键词，不再取前两句
 function enhancePromptForDalle(prompt) {
-  // 过滤敏感词
-  let safePrompt = prompt.replace(/blood|murder|weapon|dead|kill|stab|wound|corpse|body|death|suicide|hanged|strangled|gun|knife|shoot|shot|stabbed|killed|victim|crime/gi, 'mystery');
+  // 先过滤敏感词
+  let safePrompt = filterSensitiveWords(prompt);
   // 拼接风格关键词
   let enhanced = `A vintage 1940s film noir mystery scene, black and white, dramatic lighting, high contrast, grainy texture. ${safePrompt}`;
   return enhanced;
+}
+
+// ======2025511update: enhancePromptForDalle直接拼接风格关键词，不再取前两句
+function filterSensitiveWords(text) {
+  const sensitiveWords = [
+    'blood', 'murder', 'weapon', 'dead', 'kill', 'stab', 'wound', 'corpse', 'body', 'death',
+    'suicide', 'hanged', 'strangled', 'gun', 'knife', 'shoot', 'shot', 'stabbed', 'killed',
+    'victim', 'crime', 'violence', 'injury', 'bullet', 'suffocate', 'poison', 'explosion'
+  ];
+  let filtered = text;
+  sensitiveWords.forEach(word => {
+    const regex = new RegExp(word, 'gi');
+    filtered = filtered.replace(regex, 'mystery');
+  });
+  return filtered;
 }
 
 // ======= 20250511 - Updated image display function with debugging
