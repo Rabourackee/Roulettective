@@ -424,41 +424,6 @@ h3 {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
-.depth-indicator {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  background-color: var(--bg-medium);
-  border-radius: var(--border-radius-md);
-  border: 1px solid var(--border-color);
-}
-
-.depth-label {
-  color: var(--light-text);
-  font-size: 0.9rem;
-  font-family: 'Special Elite', monospace;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.depth-level {
-  background-color: var(--bg-light);
-  color: var(--light-text);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--border-radius-sm);
-  font-weight: bold;
-  border: 1px solid var(--border-color);
-  font-family: 'Special Elite', monospace;
-  min-width: 40px;
-  text-align: center;
-}
-
-.depth-level.active {
-  background-color: var(--accent-primary);
-  color: var(--bg-color);
-}
-
 /* Loading Overlay */
 .loading-overlay {
   position: absolute;
@@ -620,4 +585,20 @@ kbd {
   border-radius: var(--border-radius-sm);
   text-transform: uppercase;
   letter-spacing: 1px;
+}
+
+.insight-light {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #444;
+  display: inline-block;
+  margin-left: 8px;
+  vertical-align: middle;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+.insight-light.active {
+  background: #ff3b3b;
+  box-shadow: 0 0 8px #ff3b3b;
 }
