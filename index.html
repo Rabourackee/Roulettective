@@ -1,18 +1,22 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>分层推理解谜游戏</title>
+  <title>CRIME ARCHIVE - CASE INVESTIGATION SYSTEM</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap">
 </head>
 <body>
   <div class="app-container">
     <header>
-      <h1>分层推理解谜游戏</h1>
+      <div class="header-content">
+        <h1>CRIME ARCHIVE</h1>
+        <div class="case-number">CASE #<span id="case-number">0000</span></div>
+      </div>
       <div class="app-status">
-        <div id="connection-status">API就绪</div>
-        <div id="game-phase">阶段: 等待新谜题</div>
+        <div id="connection-status">SYSTEM READY</div>
+        <div id="game-phase">STATUS: AWAITING NEW CASE</div>
       </div>
     </header>
 
@@ -21,66 +25,71 @@
         <div class="case-card" id="case-card">
           <div class="loading-overlay" id="loading-overlay">
             <div class="spinner"></div>
-            <div class="loading-message" id="loading-message">处理中...</div>
+            <div class="loading-message" id="loading-message">PROCESSING...</div>
           </div>
           <div class="card-header">
-            <div class="slide-indicator" id="slide-indicator">欢迎</div>
-            <div class="insight-badge" id="insight-badge">新洞察</div>
+            <div class="slide-indicator" id="slide-indicator">CASE FILE</div>
+            <div class="insight-badge" id="insight-badge">NEW INSIGHT</div>
           </div>
           <div class="card-content" id="card-content">
-            <p>欢迎使用分层推理解谜游戏。</p>
-            <p>按下 <kbd>M</kbd> 键开始一个新的谜题调查。</p>
-            <p>每个谜题都包含隐藏的真相层次，随着调查的深入将逐步揭示。</p>
+            <div class="case-intro">
+              <p>CRIME ARCHIVE INVESTIGATION SYSTEM</p>
+              <p>PRESS <kbd>M</kbd> TO INITIATE NEW CASE</p>
+              <p>EACH CASE CONTAINS MULTIPLE LAYERS OF EVIDENCE</p>
+            </div>
           </div>
           <div class="card-image" id="card-image"></div>
           <div class="reveal-panel" id="reveal-panel">
             <div class="theories">
-              <button class="theory-btn" data-theory="1">理论 1</button>
-              <button class="theory-btn" data-theory="2">理论 2</button>
-              <button class="theory-btn" data-theory="3">理论 3</button>
-              <button class="theory-btn" data-theory="4">理论 4</button>
-              <button class="theory-btn" data-theory="5">理论 5</button>
+              <button class="theory-btn" data-theory="1">THEORY 1</button>
+              <button class="theory-btn" data-theory="2">THEORY 2</button>
+              <button class="theory-btn" data-theory="3">THEORY 3</button>
+              <button class="theory-btn" data-theory="4">THEORY 4</button>
+              <button class="theory-btn" data-theory="5">THEORY 5</button>
             </div>
-            <div class="theory-prompt">哪个理论是错误的？</div>
+            <div class="theory-prompt">SELECT THE FALSE THEORY</div>
           </div>
         </div>
       </div>
 
       <div class="controls-panel">
         <div class="instruction-bar" id="instruction-bar">
-          按下 <kbd>M</kbd> 键开始一个新的谜题案例
+          PRESS <kbd>M</kbd> TO INITIATE NEW CASE
         </div>
         
         <div class="control-section">
-          <h3>调查控制</h3>
+          <h3>INVESTIGATION CONTROLS</h3>
           <div class="control-buttons">
-            <button id="btn-mystery" class="control-btn mystery-btn">M<span>谜题</span></button>
-            <button id="btn-evidence" class="control-btn evidence-btn">E<span>证据</span></button>
-            <button id="btn-character" class="control-btn character-btn">C<span>人物</span></button>
-            <button id="btn-location" class="control-btn location-btn">L<span>地点</span></button>
-            <button id="btn-action" class="control-btn action-btn">A<span>行动</span></button>
-            <button id="btn-reveal" class="control-btn reveal-btn">R<span>揭示</span></button>
+            <button id="btn-mystery" class="control-btn mystery-btn">M<span>MYSTERY</span></button>
+            <button id="btn-evidence" class="control-btn evidence-btn">E<span>EVIDENCE</span></button>
+            <button id="btn-character" class="control-btn character-btn">C<span>CHARACTER</span></button>
+            <button id="btn-location" class="control-btn location-btn">L<span>LOCATION</span></button>
+            <button id="btn-action" class="control-btn action-btn">A<span>ACTION</span></button>
+            <button id="btn-reveal" class="control-btn reveal-btn">R<span>REVEAL</span></button>
           </div>
         </div>
         
         <div class="control-section">
-          <h3>导航控制</h3>
+          <h3>NAVIGATION</h3>
           <div class="nav-buttons">
-            <button id="btn-back" class="nav-btn"><span>⯇</span>后退 (B)</button>
-            <button id="btn-forward" class="nav-btn">前进 (F)<span>⯈</span></button>
-            <button id="btn-return" class="nav-btn"><span>⟲</span>返回 (T)</button>
+            <button id="btn-back" class="nav-btn"><span>⯇</span>BACK (B)</button>
+            <button id="btn-forward" class="nav-btn">FORWARD (F)<span>⯈</span></button>
+            <button id="btn-return" class="nav-btn"><span>⟲</span>RETURN (T)</button>
           </div>
         </div>
         
         <div class="depth-indicator" id="depth-indicator">
-          <div class="depth-label">洞察深度:</div>
+          <div class="depth-label">INSIGHT DEPTH:</div>
           <div class="depth-level" id="depth-level">0</div>
         </div>
       </div>
     </main>
     
     <footer>
-      <div class="slide-history" id="slide-history"></div>
+      <div class="case-history">
+        <h3>CASE HISTORY</h3>
+        <div class="slide-history" id="slide-history"></div>
+      </div>
     </footer>
   </div>
   

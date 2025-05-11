@@ -142,6 +142,7 @@ function cacheElements() {
   elements.insightBadge = document.getElementById('insight-badge');
   elements.depthLevel = document.getElementById('depth-level');
   elements.slideHistory = document.getElementById('slide-history');
+  elements.cardImage = document.getElementById('card-image');  // 添加图片容器元素
   
   // Control buttons
   elements.mysteryBtn = document.getElementById('btn-mystery');
@@ -241,7 +242,7 @@ async function createMysterySlide() {
     const systemPrompt = createMysterySystemPrompt();
     
     // Generate user prompt
-    const userPrompt = "Create a short, concise murder mystery puzzle. End with a clear one-sentence statement of the core mystery to solve.";
+    const userPrompt = "Create a short, clear description of a murder scene. Focus only on describing what is found at the scene - the victim, the location, and any notable details. Do not include any suspects or characters. End with a clear statement of what needs to be solved.";
     
     // Call API to generate mystery
     const messages = [
@@ -288,17 +289,19 @@ async function createMysterySlide() {
 
 // Create mystery generation system prompt
 function createMysterySystemPrompt() {
-  let prompt = `You are a mystery game writer. Your task is to create a short, logical murder mystery.
+  let prompt = `You are a mystery game writer. Your task is to create a short, logical crime scene description for a mystery game.
 Guidelines:
-- Keep the story simple, logical, and solvable.
-- Use clear motives, locations, and limited characters.
-- Limit setting to 1-2 scenes. Keep it grounded.
-- Write only a single paragraph, with a one-sentence riddle at the end.
-- Response must be 50-100 words total, no more.
-- Do not include any meta information, instructions, or additional content.
-- Create opportunities for strong logical connections to emerge (contradictions, revelations, etc.)`;
+- Write exactly 4 very short sentences (each under 20 words).
+- The first sentence describes who the deceased is (identity, appearance, or role).
+- The second sentence visually describes the scene where the death occurred.
+- The third sentence states what the player needs to figure out (the core mystery or question).
+- The fourth sentence describes any particularly strange or suspicious detail that could make the case solvable.
+- The scene must clearly be a crime scene with a victim.
+- Do NOT include any suspects, characters, or potential perpetrators.
+- Each sentence should be direct, visual, and simple.
+- Avoid any sensitive or violent words (like blood, murder, weapon, dead, kill, stab, wound, corpse, body, death, suicide, hanged, strangled, gun, knife, shoot, shot, stabbed, killed, victim, crime, etc).
+- Do not include any meta information, instructions, or additional content.`;
 
-  // Add previous mysteries to avoid repetition
   if (gameState.previousMysteries.length > 0) {
     prompt += `\n\nAvoid these previous themes: ${gameState.previousMysteries.join(", ")}`;
   }
@@ -429,9 +432,10 @@ async function createSlide(slideType) {
     gameState.originalContent.push(slideContent);
     gameState.currentIndex = gameState.slides.length - 1;
     
-    // 生成图片
-    await generateImage(slideContent, gameState.currentIndex);
-    
+    // 只生成一次图片，且Reveal卡片不生成图片
+    if (slideType !== "Reveal") {
+      await generateImage(slideContent, gameState.currentIndex);
+    }
     // 修改：检查新卡片和现有卡片之间的强关联
     if (slideType === "Evidence" || slideType === "Character" || slideType === "Action" || slideType === "Location") {
       await checkForStrongAssociations(gameState.currentIndex);
@@ -743,9 +747,10 @@ Guidelines for the update:
     // 更新游戏状态
     gameState.content[targetIndex] = updatedContent;
     
-    // 标记为已修改
+    // Mark as modified
     gameState.modifiedSlides.add(targetIndex);
-    
+
+
     // 生成新的图片
     await generateImage(updatedContent, targetIndex);
     
@@ -913,16 +918,10 @@ function updateUI() {
         // Add special class for updated content
         elements.cardContent.className = "card-content updated";
         
-        // If content starts with "New insight:" or similar, wrap in insight div
+        // If content starts with "New insight:" or similar, wrap all in insight div
         if (/^New insight:|^Upon further|^A closer look/i.test(content)) {
-          const firstSentenceEnd = content.indexOf('.');
-          if (firstSentenceEnd > 0) {
-            const firstPart = content.substring(0, firstSentenceEnd + 1);
-            const restContent = content.substring(firstSentenceEnd + 1);
-            elements.cardContent.innerHTML = `<div class="insight-highlight">${firstPart}</div>${restContent}`;
-          } else {
-            elements.cardContent.textContent = content;
-          }
+          // 全部内容都放进 insight-highlight，并用 <p> 包裹，保留换行
+          elements.cardContent.innerHTML = `<div class="insight-highlight"><p>${content.replace(/\n/g, '<br>')}</p></div>`;
         } else {
           elements.cardContent.textContent = content;
         }
@@ -934,7 +933,21 @@ function updateUI() {
     }
     
     // 更新图片显示
-    updateImageDisplay(gameState.currentIndex);
+    if (gameState.images[gameState.currentIndex]) {
+      elements.cardImage.style.display = 'block';
+      const img = elements.cardImage.querySelector('img');
+      if (img) {
+        img.src = gameState.images[gameState.currentIndex];
+      } else {
+        const newImg = new Image();
+        newImg.src = gameState.images[gameState.currentIndex];
+        newImg.alt = "Generated crime scene image";
+        elements.cardImage.innerHTML = '';
+        elements.cardImage.appendChild(newImg);
+      }
+    } else {
+      elements.cardImage.style.display = 'none';
+    }
     
     // Update card indicator
     elements.slideIndicator.textContent = 
@@ -953,7 +966,6 @@ function updateUI() {
       <p>Each mystery contains hidden layers of truth that will be revealed as your investigation deepens.</p>`;
     elements.slideIndicator.textContent = "Welcome";
     elements.revealPanel.classList.remove('active');
-    // 隐藏图片
     elements.cardImage.style.display = 'none';
   }
   
@@ -1110,11 +1122,20 @@ function resetGameState() {
     isGeneratingImage: false
   };
   
+  // ======= 20250511 - Clear image container on reset
   // Reset UI elements
   elements.revealPanel.classList.remove('active');
   elements.cardContent.className = "card-content";
   elements.insightBadge.classList.remove('visible');
   elements.slideHistory.innerHTML = "";
+
+  // ======= 20250511 - Clear image container
+  const imageContainer = document.getElementById('card-image');
+  if (imageContainer) {
+    imageContainer.innerHTML = '';
+    imageContainer.style.display = 'none';
+  }
+
   updatePhaseIndicator();
 }
 
@@ -1125,48 +1146,108 @@ window.OPENAI_API_KEY = ""; // Set directly here if not using .env
 window.setup = setup;
 document.addEventListener('DOMContentLoaded', setup);
 
-// 新增：生成图片函数
+// ======= 20250511 - Updated image generation function with debugging
 async function generateImage(prompt, index) {
   try {
-    // 设置图片生成状态
+    console.log(`Starting image generation for index: ${index}, prompt: ${prompt}`);
+    
+    // Set image generation state
     gameState.isGeneratingImage = true;
     
-    // 构建完整的提示词
-    const fullPrompt = `${prompt}, ${CONFIG.imageStyle}`;
+    // Check if OpenAI client is properly initialized
+    if (!openai) {
+      throw new Error("OpenAI client not initialized");
+    }
     
-    // 调用DALL-E API生成图片
+    // Enhance prompt for DALL-E
+    const imagePrompt = enhancePromptForDalle(prompt);
+    
+    console.log(`Enhanced DALL-E prompt: ${imagePrompt}`);
+    
+    // Call DALL-E API to generate image
     const response = await openai.images.generate({
       model: "dall-e-3",
-      prompt: fullPrompt,
+      prompt: imagePrompt,
       n: 1,
       size: CONFIG.imageSize
     });
     
-    // 获取图片URL
+    // Get image URL
     const imageUrl = response.data[0].url;
     
-    // 存储图片URL
+    console.log(`Image generated successfully, URL: ${imageUrl}`);
+    
+    // Ensure images array has enough space
+    while (gameState.images.length <= index) {
+      gameState.images.push(null);
+    }
+    
+    // Store image URL
     gameState.images[index] = imageUrl;
     
-    // 更新UI显示图片
+    // Update UI to display image
     updateImageDisplay(index);
     
-    // 重置图片生成状态
+    // Reset image generation state
     gameState.isGeneratingImage = false;
+    
+    console.log(`Image display successful, current index: ${index}`);
     
   } catch (error) {
     console.error("Generate image error:", error);
     gameState.isGeneratingImage = false;
+    // Even if image generation fails, don't affect game continuity
   }
 }
 
-// 新增：更新图片显示
+// ======= 20250511 - New function for DALL-E prompt enhancement
+function enhancePromptForDalle(prompt) {
+  // 取前两句话
+  let sentences = prompt.split(/[.!?]/).filter(s => s.trim().length > 0);
+  let firstTwo = sentences.slice(0, 2).join('. ') + '.';
+  // 过滤敏感词
+  firstTwo = firstTwo.replace(/blood|murder|weapon|dead|kill|stab|wound|corpse|body|death|suicide|hanged|strangled|gun|knife|shoot|shot|stabbed|killed|victim|crime/gi, 'mystery');
+  // 拼接风格关键词
+  let enhanced = `A vintage 1940s film noir mystery scene, black and white, dramatic lighting, high contrast, grainy texture. ${firstTwo}`;
+  return enhanced;
+}
+
+// ======= 20250511 - Updated image display function with debugging
 function updateImageDisplay(index) {
+  console.log(`Updating image display for index: ${index}`);
+  console.log(`Images array:`, gameState.images);
+  console.log(`Image at index:`, gameState.images[index]);
+  
   const imageContainer = document.getElementById('card-image');
+  console.log(`Image container:`, imageContainer);
+  
   if (gameState.images[index]) {
-    imageContainer.innerHTML = `<img src="${gameState.images[index]}" alt="Generated image">`;
+    console.log("Preparing to display image...");
+    
+    // Clear container first
+    imageContainer.innerHTML = '';
+    
+    // Create image element
+    const img = new Image();
+    img.onload = () => {
+      console.log("Image loaded successfully");
+    };
+    img.onerror = () => {
+      console.error("Image failed to load");
+    };
+    
+    img.src = gameState.images[index];
+    img.alt = "Generated crime scene image";
+    
+    // Add to container
+    imageContainer.appendChild(img);
     imageContainer.style.display = 'block';
+    
+    console.log("Image element added to DOM");
   } else {
+    console.log("No image found, hiding container");
     imageContainer.style.display = 'none';
   }
+  
+  console.log(`Image display update completed`);
 }
