@@ -1368,7 +1368,16 @@ window.OPENAI_API_KEY = ""; // Set directly here if not using .env
 window.setup = setup;
 document.addEventListener('DOMContentLoaded', setup);// ======2025511update: summarizeForDalle，AI精炼图片prompt，死亡场景翻译为"倒在地上"
 async function summarizeForDalle(longPrompt) {
-  const systemPrompt = "You are an expert at summarizing crime scene descriptions for image generation. Summarize the following text into a single, vivid, English prompt under 300 characters (including spaces), focusing only on the visual scene and atmosphere. If the scene involves a dead person, always describe them as 'lying on the ground' or 'lying on the floor'. Do not include any names, dialogue, or meta information.";
+  const systemPrompt = `You are an expert at summarizing crime scene descriptions for image generation. 
+Summarize the following text into a single, vivid, English prompt under 250 characters (including spaces).
+Focus only on the visual scene and atmosphere.
+Guidelines:
+- If someone is dead, describe them as "lying on the ground" or "lying on the floor"
+- Avoid any violent or sensitive words
+- Focus on visual elements like lighting, objects, and environment
+- Do not include any names, dialogue, or meta information
+- Keep it concise and descriptive`;
+
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: longPrompt }
@@ -1425,23 +1434,49 @@ async function generateImage(prompt, index) {
 function enhancePromptForDalle(prompt) {
   // 先过滤敏感词
   let safePrompt = filterSensitiveWords(prompt);
-  // 拼接风格关键词
-  let enhanced = `A vintage 1940s film noir mystery scene, black and white, dramatic lighting, high contrast, grainy texture. ${safePrompt}`;
-  return enhanced;
+  // 拼接风格关键词，使用更简洁的描述
+  let enhanced = `A vintage film noir scene, black and white, dramatic lighting. ${safePrompt}`;
+  // 确保总长度不超过250字符
+  return enhanced.slice(0, 250).trim();
 }
 
 // ======2025511update: enhancePromptForDalle直接拼接风格关键词，不再取前两句
 function filterSensitiveWords(text) {
-  const sensitiveWords = [
-    'blood', 'murder', 'weapon', 'dead', 'kill', 'stab', 'wound', 'corpse', 'body', 'death',
-    'suicide', 'hanged', 'strangled', 'gun', 'knife', 'shoot', 'shot', 'stabbed', 'killed',
-    'victim', 'crime', 'violence', 'injury', 'bullet', 'suffocate', 'poison', 'explosion'
-  ];
+  const sensitiveWordMap = {
+    'blood': 'mysterious stain',
+    'murder': 'incident',
+    'weapon': 'object',
+    'dead': 'lying on the ground',
+    'kill': 'incident',
+    'stab': 'wound',
+    'wound': 'injury',
+    'corpse': 'person lying on the ground',
+    'body': 'person',
+    'death': 'incident',
+    'suicide': 'incident',
+    'hanged': 'found',
+    'strangled': 'found',
+    'gun': 'object',
+    'knife': 'object',
+    'shoot': 'incident',
+    'shot': 'incident',
+    'stabbed': 'injured',
+    'killed': 'found',
+    'victim': 'person',
+    'crime': 'incident',
+    'violence': 'incident',
+    'injury': 'condition',
+    'bullet': 'object',
+    'suffocate': 'found',
+    'poison': 'substance',
+    'explosion': 'incident'
+  };
+
   let filtered = text;
-  sensitiveWords.forEach(word => {
-    const regex = new RegExp(word, 'gi');
-    filtered = filtered.replace(regex, 'mystery');
-  });
+  for (const [word, replacement] of Object.entries(sensitiveWordMap)) {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    filtered = filtered.replace(regex, replacement);
+  }
   return filtered;
 }
 
