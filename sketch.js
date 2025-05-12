@@ -21,7 +21,9 @@ const CONFIG = {
   maxAssociationsPerGame: 3,   // 每个游戏最多触发关联的次数
   // 添加DALL-E配置
   imageStyle: "vintage film noir style, black and white, criminal scene, dramatic lighting, high contrast, grainy texture, cinematic composition", // DALL-E图片风格
-  imageSize: "1024x1024"       // 图片尺寸
+  imageSize: "1024x1024",      // 图片尺寸
+  // 添加音乐配置
+  musicVolume: 0.5            // 音乐音量
 };
 
 // Game state
@@ -49,7 +51,9 @@ let gameState = {
   // 添加图片状态
   images: [],                // 存储每张幻灯片的图片URL
   isGeneratingImage: false,  // 图片生成状态
-  pendingAssociationIndex: undefined
+  pendingAssociationIndex: undefined,
+  // 添加音乐状态
+  isMusicPlaying: false      // 音乐播放状态
 };
 
 // Initialize OpenAI
@@ -57,6 +61,27 @@ let openai;
 
 // DOM elements
 const elements = {};
+
+// 音乐控制函数
+function playBackgroundMusic() {
+  const bgm = document.getElementById('bgm');
+  if (bgm) {
+    bgm.volume = CONFIG.musicVolume;
+    bgm.play().catch(error => {
+      console.error("Error playing background music:", error);
+    });
+    gameState.isMusicPlaying = true;
+  }
+}
+
+function stopBackgroundMusic() {
+  const bgm = document.getElementById('bgm');
+  if (bgm) {
+    bgm.pause();
+    bgm.currentTime = 0;
+    gameState.isMusicPlaying = false;
+  }
+}
 
 // Check if API key exists
 function checkAPIKey() {
@@ -239,6 +264,9 @@ async function createMysterySlide() {
   try {
     // Reset game state
     resetGameState();
+    
+    // 开始播放背景音乐
+    playBackgroundMusic();
     
     // Generate system prompt
     const systemPrompt = createMysterySystemPrompt();
@@ -603,6 +631,9 @@ async function submitTheory(theoryNumber) {
   try {
     // Check if correct
     const isCorrect = (theoryNumber === gameState.correctAnswer);
+    
+    // 停止背景音乐
+    stopBackgroundMusic();
     
     // Create messages for conclusion
     const messages = [
@@ -986,8 +1017,13 @@ function resetGameState() {
     // 重置图片状态
     images: [],
     isGeneratingImage: false,
-    pendingAssociationIndex: undefined
+    pendingAssociationIndex: undefined,
+    // 重置音乐状态
+    isMusicPlaying: false
   };
+  
+  // 停止背景音乐
+  stopBackgroundMusic();
   
   // ======= 20250511 - Clear image container on reset
   // Reset UI elements
