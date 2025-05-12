@@ -158,31 +158,33 @@ function cacheElements() {
   elements.returnBtn = document.getElementById('btn-return');
   // Theory buttons - get all buttons with theory-btn class
   elements.theoryBtns = document.querySelectorAll('.theory-btn');
-  // ======2025511update: 事件绑定用async，保证navigateBack/navigateForward为async时能正确await
-  elements.backBtn.addEventListener('click', async () => { await navigateBack(); });
-  elements.forwardBtn.addEventListener('click', async () => { await navigateForward(); });
+  // 只在元素存在时绑定事件
+  if (elements.backBtn) elements.backBtn.addEventListener('click', async () => { await navigateBack(); });
+  if (elements.forwardBtn) elements.forwardBtn.addEventListener('click', async () => { await navigateForward(); });
 }
 
 // Attach event listeners
 function attachEventListeners() {
   // Control buttons
-  elements.mysteryBtn.addEventListener('click', () => createMysterySlide());
-  elements.evidenceBtn.addEventListener('click', () => createSlide('Evidence'));
-  elements.characterBtn.addEventListener('click', () => createSlide('Character'));
-  elements.locationBtn.addEventListener('click', () => createSlide('Location'));
-  elements.actionBtn.addEventListener('click', () => createSlide('Action'));
-  elements.revealBtn.addEventListener('click', () => createSlide('Reveal'));
+  if (elements.mysteryBtn) elements.mysteryBtn.addEventListener('click', () => createMysterySlide());
+  if (elements.evidenceBtn) elements.evidenceBtn.addEventListener('click', () => createSlide('Evidence'));
+  if (elements.characterBtn) elements.characterBtn.addEventListener('click', () => createSlide('Character'));
+  if (elements.locationBtn) elements.locationBtn.addEventListener('click', () => createSlide('Location'));
+  if (elements.actionBtn) elements.actionBtn.addEventListener('click', () => createSlide('Action'));
+  if (elements.revealBtn) elements.revealBtn.addEventListener('click', () => createSlide('Reveal'));
   
   // Navigation buttons
-  elements.returnBtn.addEventListener('click', navigateReturn);
+  if (elements.returnBtn) elements.returnBtn.addEventListener('click', navigateReturn);
   
   // Theory buttons
-  elements.theoryBtns.forEach(button => {
-    button.addEventListener('click', event => {
-      const theoryNumber = parseInt(event.target.dataset.theory);
-      submitTheory(theoryNumber);
+  if (elements.theoryBtns && elements.theoryBtns.length > 0) {
+    elements.theoryBtns.forEach(button => {
+      button.addEventListener('click', event => {
+        const theoryNumber = parseInt(event.target.dataset.theory);
+        submitTheory(theoryNumber);
+      });
     });
-  });
+  }
   
   // Keyboard navigation
   document.addEventListener('keydown', handleKeyPress);
@@ -798,10 +800,11 @@ function updateButtonLabels() {
   if (elements.returnBtn) elements.returnBtn.innerHTML = '<span>⟲</span>Return (T)';
   
   // Update depth indicator
-  document.querySelector('.depth-label').textContent = 'Insight Depth:';
+  // const depthLabel = document.querySelector('.depth-label');
+  // if (depthLabel) depthLabel.textContent = 'Insight Depth:';
   
   // Update insight badge
-  elements.insightBadge.textContent = 'New Insight';
+  if (elements.insightBadge) elements.insightBadge.textContent = 'New Insight';
 }
 
 // Update instruction bar based on current state
