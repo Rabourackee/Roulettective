@@ -23,7 +23,252 @@ const CONFIG = {
   imageStyle: "vintage film noir style, black and white, criminal scene, dramatic lighting, high contrast, grainy texture, cinematic composition", // DALL-E图片风格
   imageSize: "1024x1024",      // 图片尺寸
   // 添加音乐配置
-  musicVolume: 0.5            // 音乐音量
+  musicVolume: 0.5,           // 音乐音量
+  // 添加缓存配置
+  cacheConfig: {
+    minCardsInCache: 2,        // 每种类型最少缓存数量
+    maxRetries: 5,             // API调用最大重试次数 (increased from 3)
+    retryDelay: 2000,          // 重试延迟(ms) (increased from 1000)
+    backgroundSyncInterval: 5000 // 后台同步间隔(ms)
+  },
+  // 添加请求控制配置
+  requestControl: {
+    maxConcurrentRequests: 1,  // 最大并发请求数 (reduced from 2)
+    minRequestInterval: 2000,  // 最小请求间隔(ms) (reduced from 20000)
+    requestQueue: [],          // 请求队列
+    activeRequests: 0,         // 当前活跃请求数
+    lastRequestTime: 0         // 上次请求时间
+  }
+};
+
+// ContentCache Module
+const ContentCache = {
+  mystery: null,
+  evidence: [],
+  characters: [],
+  locations: [],
+  actions: [],
+  associations: [],
+  images: new Map(), // 存储图片URL
+  generationStatus: {
+    isGenerating: false,
+    progress: 0,
+    lastSync: null
+  },
+  
+  // 重置缓存
+  reset() {
+    this.mystery = null;
+    this.evidence = [];
+    this.characters = [];
+    this.locations = [];
+    this.actions = [];
+    this.associations = [];
+    this.images.clear();
+    this.generationStatus = {
+      isGenerating: false,
+      progress: 0,
+      lastSync: null
+    };
+  },
+  
+  // 获取卡片
+  getCard(type) {
+    switch(type) {
+      case 'Evidence': return this.evidence.shift();
+      case 'Character': return this.characters.shift();
+      case 'Location': return this.locations.shift();
+      case 'Action': return this.actions.shift();
+      default: return null;
+    }
+  },
+  
+  // 检查缓存状态
+  needsRefill(type) {
+    const cache = this[type.toLowerCase() + 's'];
+    return Array.isArray(cache) && cache.length < CONFIG.cacheConfig.minCardsInCache;
+  },
+  
+  // 获取图片URL
+  getImage(index) {
+    return this.images.get(index);
+  },
+  
+  // 存储图片URL
+  setImage(index, url) {
+    this.images.set(index, url);
+  }
+};
+
+// Background Generator Module
+const BackgroundGenerator = {
+  isRunning: false,
+  
+  // 启动后台生成器
+  async start() {
+    if (this.isRunning) return;
+    this.isRunning = true;
+    
+    try {
+      // 并行生成所有类型的卡片
+      await Promise.all([
+        this.generateCards('Evidence', CONFIG.maxCardCounts.Evidence),
+        this.generateCards('Character', CONFIG.maxCardCounts.Character),
+        this.generateCards('Location', CONFIG.maxCardCounts.Location),
+        this.generateCards('Action', CONFIG.maxCardCounts.Action)
+      ]);
+      
+      // 生成关联链
+      await this.generateAssociations();
+      
+      ContentCache.generationStatus.isGenerating = false;
+      ContentCache.generationStatus.progress = 100;
+      ContentCache.generationStatus.lastSync = new Date();
+      
+    } catch (error) {
+      console.error('Background generation error:', error);
+      this.handleError(error);
+    } finally {
+      this.isRunning = false;
+    }
+  },
+  
+  // 生成指定类型的卡片
+  async generateCards(type, amount) {
+    const promises = [];
+    for (let i = 0; i < amount; i++) {
+      promises.push(this.generateSingleCard(type));
+    }
+    const results = await Promise.all(promises);
+    ContentCache[type.toLowerCase() + 's'].push(...results);
+  },
+  
+  // 生成单个卡片
+  async generateSingleCard(type) {
+    let retries = 0;
+    while (retries < CONFIG.cacheConfig.maxRetries) {
+      try {
+        const systemPrompt = createSlideSystemPrompt(type);
+        const messages = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Generate a ${type} card for this mystery.` }
+        ];
+        
+        const response = await openai.chat.completions.create({
+          model: CONFIG.apiModel,
+          messages: messages
+        });
+        
+        const content = response.choices[0].message.content;
+        
+        // 生成图片
+        const imageUrl = await this.generateImage(content);
+        
+        return {
+          content,
+          imageUrl,
+          type
+        };
+      } catch (error) {
+        retries++;
+        if (retries === CONFIG.cacheConfig.maxRetries) {
+          throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, CONFIG.cacheConfig.retryDelay));
+      }
+    }
+  },
+  
+  // 生成图片
+  async generateImage(content, retry = 0) {
+    try {
+      const shortPrompt = await summarizeForDalle(content);
+      const safeShortPrompt = shortPrompt.slice(0, 250).trim();
+      const imagePrompt = enhancePromptForDalle(safeShortPrompt);
+      
+      const response = await openai.images.generate({
+        model: "dall-e-3",
+        prompt: imagePrompt,
+        n: 1,
+        size: CONFIG.imageSize
+      });
+      
+      return response.data[0].url;
+    } catch (error) {
+      if (retry < 2) {
+        // 指数退避
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retry)));
+        return BackgroundGenerator.generateImage(content, retry + 1);
+      }
+      console.error('Image generation error:', error);
+      return null;
+    }
+  },
+  
+  // 生成关联链
+  async generateAssociations() {
+    const allCards = [
+      ...ContentCache.evidence,
+      ...ContentCache.characters,
+      ...ContentCache.locations,
+      ...ContentCache.actions
+    ];
+    
+    for (let i = 0; i < allCards.length; i++) {
+      for (let j = i + 1; j < allCards.length; j++) {
+        const association = await this.checkAssociation(allCards[i], allCards[j]);
+        if (association) {
+          ContentCache.associations.push(association);
+        }
+      }
+    }
+  },
+  
+  // 检查两个卡片之间的关联
+  async checkAssociation(card1, card2) {
+    try {
+      const systemPrompt = `You are analyzing a mystery game where players discover clues.
+Your task is to determine if these cards have a strong logical connection.
+Rate on a scale of 0.0-1.0 how strongly connected these cards are.
+Only high ratings (${CONFIG.associationThreshold} or higher) indicate a true connection.`;
+      
+      const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Card 1 (${card1.type}): ${card1.content}\n\nCard 2 (${card2.type}): ${card2.content}\n\nIs there a strong logical connection between these cards? Rate from 0.0-1.0.` }
+      ];
+      
+      const response = await openai.chat.completions.create({
+        model: CONFIG.apiModel,
+        messages: messages
+      });
+      
+      const analysisResult = response.choices[0].message.content;
+      const ratingMatch = analysisResult.match(/(\d+\.\d+)/);
+      
+      if (ratingMatch) {
+        const rating = parseFloat(ratingMatch[1]);
+        if (rating >= CONFIG.associationThreshold) {
+          return {
+            sourceCard: card1,
+            targetCard: card2,
+            rating,
+            reason: analysisResult.replace(/\d+\.\d+/, "").trim()
+          };
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Association check error:', error);
+      return null;
+    }
+  },
+  
+  // 错误处理
+  handleError(error) {
+    console.error('Background generation error:', error);
+    showError(`Background generation error: ${error.message}`);
+  }
 };
 
 // Game state
@@ -53,7 +298,13 @@ let gameState = {
   isGeneratingImage: false,  // 图片生成状态
   pendingAssociationIndex: undefined,
   // 添加音乐状态
-  isMusicPlaying: false      // 音乐播放状态
+  isMusicPlaying: false,     // 音乐播放状态
+  // 添加缓存状态
+  cacheStatus: {
+    isInitialized: false,
+    lastSync: null,
+    backgroundSyncTimer: null
+  }
 };
 
 // Initialize OpenAI
@@ -139,11 +390,17 @@ async function setup() {
       dangerouslyAllowBrowser: true 
     });
     
+    // Initialize ContentCache
+    ContentCache.reset();
+    
     // Attach event listeners
     attachEventListeners();
     
     // Set up UI
     updateUI();
+    
+    // Start background sync timer
+    startBackgroundSync();
     
     // Log successful initialization
     console.log("Layered Reasoning Mystery Game initialized successfully");
@@ -262,8 +519,9 @@ async function createMysterySlide() {
   setLoading(true, "Generating new mystery...");
   
   try {
-    // Reset game state
+    // Reset game state and cache
     resetGameState();
+    ContentCache.reset();
     
     // 开始播放背景音乐
     playBackgroundMusic();
@@ -292,6 +550,16 @@ async function createMysterySlide() {
     const mysteryIdentifier = extractMysteryIdentifier(mysteryContent);
     gameState.previousMysteries.push(mysteryIdentifier);
     
+    // Generate mystery image
+    const imageUrl = await BackgroundGenerator.generateImage(mysteryContent);
+    
+    // Store in cache
+    ContentCache.mystery = {
+      content: mysteryContent,
+      imageUrl,
+      type: 'Mystery'
+    };
+    
     // Add to game state
     gameState.slides.push("Mystery");
     gameState.content.push(mysteryContent);
@@ -299,8 +567,16 @@ async function createMysterySlide() {
     gameState.currentIndex = 0;
     gameState.phase = "investigating";
     
-    // 生成谜题图片
-    await generateImage(mysteryContent, gameState.currentIndex);
+    // Store image URL
+    if (imageUrl) {
+      gameState.images[0] = imageUrl;
+    }
+    
+    // Start background generation
+    gameState.cacheStatus.isInitialized = true;
+    BackgroundGenerator.start().catch(error => {
+      console.error('Background generation error:', error);
+    });
     
     // Update UI
     updateUI();
@@ -387,26 +663,11 @@ async function createSlide(slideType) {
   setLoading(true, `Generating ${slideType} content...`);
   
   try {
-    // Generate system prompt
-    const systemPrompt = createSlideSystemPrompt(slideType);
+    let slideContent;
+    let imageUrl;
     
-    // Prepare context of existing cards
-    const messages = [{ role: "system", content: systemPrompt }];
-    
-    // Add all previous cards as context
-    for (let i = 0; i < gameState.slides.length; i++) {
-      messages.push(
-        { role: "user", content: `${gameState.slides[i]} Card:` },
-        { role: "assistant", content: gameState.content[i] }
-      );
-    }
-    
-    // Add specific request for this card type
-    messages.push({ role: "user", content: `Generate a ${slideType} card for this mystery.` });
-    
-    // Special handling for Reveal card
     if (slideType === "Reveal") {
-      // Ensure we have enough cards
+      // Special handling for Reveal card
       if (gameState.slides.length < CONFIG.minSlidesBeforeReveal) {
         elements.instructionBar.textContent = 
           `Need more investigation before reveal. Add at least ${CONFIG.minSlidesBeforeReveal - gameState.slides.length} more cards.`;
@@ -414,28 +675,21 @@ async function createSlide(slideType) {
         return;
       }
       
-      // Special system reminder for Reveal card
-      messages.push({
-        role: "system",
-        content: "Remember to create exactly 5 theories, 4 true and 1 false. Clearly number them as Theory #1, Theory #2, etc."
+      // Generate reveal content
+      const systemPrompt = createSlideSystemPrompt(slideType);
+      const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Generate a ${slideType} card for this mystery.` }
+      ];
+      
+      const response = await openai.chat.completions.create({
+        model: CONFIG.apiModel,
+        messages: messages
       });
       
-      // Update game phase
-      gameState.phase = "reveal";
-    }
-    
-    // Call API to generate content
-    const response = await openai.chat.completions.create({
-      model: CONFIG.apiModel,
-      messages: messages
-    });
-    
-    // Get card content
-    const slideContent = response.choices[0].message.content;
-    
-    // For Reveal card, determine which theory is false
-    if (slideType === "Reveal") {
-      // Ask which theory is false
+      slideContent = response.choices[0].message.content;
+      
+      // Determine which theory is false
       const falseTheoryMessages = [
         ...messages,
         { role: "assistant", content: slideContent },
@@ -453,6 +707,20 @@ async function createSlide(slideType) {
       // Store correct answer
       gameState.correctAnswer = falseTheoryNumber;
       console.log(`Theory #${falseTheoryNumber} is incorrect`);
+      
+    } else {
+      // Get card from cache
+      const cachedCard = ContentCache.getCard(slideType);
+      
+      if (cachedCard) {
+        slideContent = cachedCard.content;
+        imageUrl = cachedCard.imageUrl;
+      } else {
+        // If no cached card, generate one
+        const card = await BackgroundGenerator.generateSingleCard(slideType);
+        slideContent = card.content;
+        imageUrl = card.imageUrl;
+      }
     }
     
     // Add to game state
@@ -461,13 +729,26 @@ async function createSlide(slideType) {
     gameState.originalContent.push(slideContent);
     gameState.currentIndex = gameState.slides.length - 1;
     
-    // 只生成一次图片，且Reveal卡片不生成图片
-    if (slideType !== "Reveal") {
-      await generateImage(slideContent, gameState.currentIndex);
+    // Store image URL
+    if (imageUrl) {
+      gameState.images[gameState.currentIndex] = imageUrl;
     }
-    // 修改：检查新卡片和现有卡片之间的强关联
-    if (slideType === "Evidence" || slideType === "Character" || slideType === "Action" || slideType === "Location") {
-      await checkForStrongAssociations(gameState.currentIndex);
+    
+    // Check for associations
+    if (slideType !== "Reveal") {
+      const associations = ContentCache.associations.filter(assoc => 
+        assoc.sourceCard.type === slideType || assoc.targetCard.type === slideType
+      );
+      
+      if (associations.length > 0) {
+        const association = associations[0];
+        gameState.associationTargets.push({
+          sourceIndex: gameState.currentIndex,
+          targetIndex: -1, // Will be set when navigating
+          reason: association.reason
+        });
+        enterInsightChain(-1); // Will be set when navigating
+      }
     }
     
     // Update UI
@@ -595,25 +876,54 @@ async function updateSlideWithAssociation(association) {
   try {
     const targetIndex = association.targetIndex;
     const sourceIndex = association.sourceIndex;
-    const targetSlideType = gameState.slides[targetIndex];
-    const sourceSlideType = gameState.slides[sourceIndex];
-    const systemPrompt = `You are updating a card in a mystery game based on a strong logical connection.\nA new ${sourceSlideType} card has revealed information that directly connects to this ${targetSlideType} card.\nThe connection is: ${association.reason}\nGuidelines for the update:\n- Start with \"New insight:\" to indicate this is updated information\n- If the connection is 'witness recants', update the witness statement accordingly\n- If the connection is 'evidence upgraded', add new information to the evidence\n- If the connection is 'evidence destroyed', state that the evidence is no longer available or has been tampered with\n- If the connection is 'location triggers recall', update the witness or evidence with the new recalled information\n- Focus specifically on the logical connection between the cards\n- Keep the update to 1-2 sentences maximum\n- Be direct and clear about how this changes our understanding\n- The update should feel like an \"aha!\" moment that changes perspective`;
-    const messages = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `Original ${targetSlideType} content: ${gameState.originalContent[targetIndex]}` },
-      { role: "user", content: `New ${sourceSlideType} content that creates the connection: ${gameState.content[sourceIndex]}` },
-      { role: "user", content: `Update this ${targetSlideType} card based on the strong connection. Keep it very brief (1-2 sentences).` }
-    ];
-    const response = await openai.chat.completions.create({
-      model: CONFIG.apiModel,
-      messages: messages
-    });
-    const updatedContent = response.choices[0].message.content;
-    gameState.content[targetIndex] = updatedContent;
+    
+    // Get cached association if available
+    const cachedAssociation = ContentCache.associations.find(assoc => 
+      assoc.sourceCard.type === sourceIndex && 
+      assoc.targetCard.type === targetIndex
+    );
+    
+    if (cachedAssociation) {
+      // Use cached update
+      gameState.content[targetIndex] = cachedAssociation.updatedContent;
+    } else {
+      // Generate new update
+      const systemPrompt = `You are updating a card in a mystery game based on a strong logical connection.\nA new ${sourceIndex} card has revealed information that directly connects to this ${targetIndex} card.\nThe connection is: ${association.reason}\nGuidelines for the update:\n- Start with \"New insight:\" to indicate this is updated information\n- If the connection is 'witness recants', update the witness statement accordingly\n- If the connection is 'evidence upgraded', add new information to the evidence\n- If the connection is 'evidence destroyed', state that the evidence is no longer available or has been tampered with\n- If the connection is 'location triggers recall', update the witness or evidence with the new recalled information\n- Focus specifically on the logical connection between the cards\n- Keep the update to 1-2 sentences maximum\n- Be direct and clear about how this changes our understanding\n- The update should feel like an \"aha!\" moment that changes perspective`;
+      
+      const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Original ${targetIndex} content: ${gameState.originalContent[targetIndex]}` },
+        { role: "user", content: `New ${sourceIndex} content that creates the connection: ${gameState.content[sourceIndex]}` },
+        { role: "user", content: `Update this ${targetIndex} card based on the strong connection. Keep it very brief (1-2 sentences).` }
+      ];
+      
+      const response = await openai.chat.completions.create({
+        model: CONFIG.apiModel,
+        messages: messages
+      });
+      
+      const updatedContent = response.choices[0].message.content;
+      gameState.content[targetIndex] = updatedContent;
+      
+      // Cache the association update
+      ContentCache.associations.push({
+        sourceCard: { type: sourceIndex, content: gameState.content[sourceIndex] },
+        targetCard: { type: targetIndex, content: gameState.originalContent[targetIndex] },
+        updatedContent,
+        reason: association.reason
+      });
+    }
+    
     gameState.modifiedSlides.add(targetIndex);
-    await generateImage(updatedContent, targetIndex);
+    
+    // Update image if needed
+    const imageUrl = await BackgroundGenerator.generateImage(gameState.content[targetIndex]);
+    if (imageUrl) {
+      gameState.images[targetIndex] = imageUrl;
+    }
+    
     console.log(`Updated card ${targetIndex} based on connection with card ${sourceIndex}`);
-    // 不在这里刷新UI和熄灭红灯
+    
   } catch (error) {
     console.error(`Update card association error:`, error);
     gameState.content[association.targetIndex] = gameState.originalContent[association.targetIndex];
@@ -1019,7 +1329,13 @@ function resetGameState() {
     isGeneratingImage: false,
     pendingAssociationIndex: undefined,
     // 重置音乐状态
-    isMusicPlaying: false
+    isMusicPlaying: false,
+    // 重置缓存状态
+    cacheStatus: {
+      isInitialized: false,
+      lastSync: null,
+      backgroundSyncTimer: null
+    }
   };
   
   // 停止背景音乐
@@ -1050,9 +1366,7 @@ window.OPENAI_API_KEY = ""; // Set directly here if not using .env
 
 // Initialize game when DOM is loaded
 window.setup = setup;
-document.addEventListener('DOMContentLoaded', setup);
-
-// ======2025511update: summarizeForDalle，AI精炼图片prompt，死亡场景翻译为"倒在地上"
+document.addEventListener('DOMContentLoaded', setup);// ======2025511update: summarizeForDalle，AI精炼图片prompt，死亡场景翻译为"倒在地上"
 async function summarizeForDalle(longPrompt) {
   const systemPrompt = "You are an expert at summarizing crime scene descriptions for image generation. Summarize the following text into a single, vivid, English prompt under 300 characters (including spaces), focusing only on the visual scene and atmosphere. If the scene involves a dead person, always describe them as 'lying on the ground' or 'lying on the floor'. Do not include any names, dialogue, or meta information.";
   const messages = [
@@ -1076,15 +1390,17 @@ async function generateImage(prompt, index) {
     // 再走原有流程
     const imagePrompt = enhancePromptForDalle(safeShortPrompt);
     console.log(`Enhanced DALL-E prompt: ${imagePrompt}`);
-    // Call DALL-E API to generate image
-    const response = await openai.images.generate({
-      model: "dall-e-3",
-      prompt: imagePrompt,
-      n: 1,
-      size: CONFIG.imageSize
+
+    // 使用请求控制来调用DALL-E API
+    const imageUrl = await RequestControl.addToQueue(async () => {
+      const response = await openai.images.generate({
+        model: "dall-e-3",
+        prompt: imagePrompt,
+        n: 1,
+        size: CONFIG.imageSize
+      });
+      return response.data[0].url;
     });
-    // Get image URL
-    const imageUrl = response.data[0].url;
     
     console.log(`Image generated successfully, URL: ${imageUrl}`);
     
@@ -1151,6 +1467,8 @@ function updateImageDisplay(index) {
     };
     img.onerror = () => {
       console.error("Image failed to load");
+      // 显示占位图
+      imageContainer.innerHTML = '<div class="placeholder" style="width:100%;height:300px;display:flex;align-items:center;justify-content:center;background:#222;color:#aaa;font-size:1.2em;">Image unavailable</div>';
     };
     
     img.src = gameState.images[index];
@@ -1162,8 +1480,10 @@ function updateImageDisplay(index) {
     
     console.log("Image element added to DOM");
   } else {
-    console.log("No image found, hiding container");
-    imageContainer.style.display = 'none';
+    // 显示占位图
+    imageContainer.innerHTML = '<div class="placeholder" style="width:100%;height:300px;display:flex;align-items:center;justify-content:center;background:#222;color:#aaa;font-size:1.2em;">Image unavailable</div>';
+    imageContainer.style.display = 'block';
+    console.log("No image found, showing placeholder");
   }
   
   console.log(`Image display update completed`);
@@ -1197,6 +1517,7 @@ async function navigateBack() {
     }, 400);
   }
 }
+
 async function navigateForward() {
   if (gameState.isLoading) return;
   if (gameState.slides.length === 0) return;
@@ -1224,32 +1545,7 @@ async function navigateForward() {
     }, 400);
   }
 }
-async function navigateReturn() {
-  if (gameState.isLoading) return;
-  if (gameState.insightLevel <= 0) {
-    elements.instructionBar.textContent = "No active connections to process.";
-    return;
-  }
-  setLoading(true, "Processing connection insight...");
-  try {
-    const targetIndex = gameState.insightChain.pop();
-    gameState.insightLevel--;
-    if (gameState.insightLevel === 0) {
-      const association = gameState.associationTargets.find(assoc => assoc.targetIndex === targetIndex);
-      if (association) {
-        await updateSlideWithAssociation(association);
-      }
-    }
-    gameState.currentIndex = targetIndex;
-    updateUI();
-    updateSlideHistory();
-    setLoading(false);
-  } catch (error) {
-    console.error("Return from insight chain error:", error);
-    showError(`Process insight error: ${error.message}`);
-    setLoading(false);
-  }
-}
+
 // ======2025511update: enterInsightChain时记录pendingAssociationIndex并亮红灯
 function enterInsightChain(targetIndex) {
   elements.instructionBar.textContent =
@@ -1257,3 +1553,123 @@ function enterInsightChain(targetIndex) {
   gameState.pendingAssociationIndex = targetIndex;
   if (elements.insightLight) elements.insightLight.classList.add('active');
 }
+
+// Start background sync timer
+function startBackgroundSync() {
+  if (gameState.cacheStatus.backgroundSyncTimer) {
+    clearInterval(gameState.cacheStatus.backgroundSyncTimer);
+  }
+  
+  gameState.cacheStatus.backgroundSyncTimer = setInterval(async () => {
+    if (!gameState.cacheStatus.isInitialized) return;
+    
+    try {
+      // Check if any card type needs refill
+      const needsRefill = ['evidence', 'characters', 'locations', 'actions']
+        .some(type => ContentCache.needsRefill(type));
+      
+      if (needsRefill && !BackgroundGenerator.isRunning) {
+        await BackgroundGenerator.start();
+      }
+    } catch (error) {
+      console.error('Background sync error:', error);
+    }
+  }, CONFIG.cacheConfig.backgroundSyncInterval);
+}
+
+// Enhanced Request Control Module with better rate limiting
+const RequestControl = {
+  queue: [],
+  activeRequests: 0,
+  lastRequestTime: 0,
+  
+  // Configuration
+  maxConcurrentRequests: 1, // Reduced from 2 to 1 to be more conservative
+  minRequestInterval: 2000,  // Increased from 20000ms to 2000ms (still limiting, but more realistic)
+  
+  // Enhanced queue system
+  async addToQueue(requestFn, priority = 0) {
+    return new Promise((resolve, reject) => {
+      const request = {
+        fn: requestFn,
+        resolve,
+        reject,
+        priority,
+        addedTime: Date.now()
+      };
+      
+      // Insert into queue based on priority
+      const index = this.queue.findIndex(item => item.priority < priority);
+      if (index === -1) {
+        this.queue.push(request);
+      } else {
+        this.queue.splice(index, 0, request);
+      }
+      
+      console.log(`Added request to queue. Queue length: ${this.queue.length}`);
+      this.processQueue();
+    });
+  },
+  
+  // Process the next request in queue
+  async processQueue() {
+    // Exit if already at max concurrent requests
+    if (this.activeRequests >= this.maxConcurrentRequests) {
+      console.log(`Already at max concurrent requests (${this.activeRequests}). Waiting.`);
+      return;
+    }
+    
+    // Exit if queue is empty
+    if (this.queue.length === 0) {
+      return;
+    }
+    
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    
+    // Check if we need to wait before processing the next request
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      console.log(`Rate limiting: waiting ${this.minRequestInterval - timeSinceLastRequest}ms before next request`);
+      setTimeout(() => this.processQueue(), this.minRequestInterval - timeSinceLastRequest);
+      return;
+    }
+    
+    // Get the next request with highest priority
+    const request = this.queue.shift();
+    this.activeRequests++;
+    this.lastRequestTime = now;
+    
+    console.log(`Processing request. Queue remaining: ${this.queue.length}`);
+    
+    try {
+      const result = await request.fn();
+      request.resolve(result);
+    } catch (error) {
+      console.error('Request failed:', error);
+      
+      // Special handling for rate limit errors
+      if (error.status === 429 || (error.response && error.response.status === 429)) {
+        console.log('Rate limit error detected. Adding back to queue with delay.');
+        // Wait 5 seconds and try again with lower priority
+        setTimeout(() => {
+          this.addToQueue(request.fn, request.priority - 1);
+        }, 5000);
+      } else {
+        request.reject(error);
+      }
+    } finally {
+      this.activeRequests--;
+      // Process next request with a small delay to ensure we're not hammering the API
+      setTimeout(() => this.processQueue(), 100);
+    }
+  },
+  
+  // Reset request control state
+  reset() {
+    this.queue = [];
+    this.activeRequests = 0;
+    this.lastRequestTime = 0;
+    console.log('Request control system reset');
+  }
+};
+
