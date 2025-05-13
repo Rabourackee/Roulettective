@@ -53,7 +53,8 @@ let gameState = {
   isGeneratingImage: false,  // 图片生成状态
   pendingAssociationIndex: undefined,
   // 添加音乐状态
-  isMusicPlaying: false      // 音乐播放状态
+  isMusicPlaying: false,      // 音乐播放状态
+  pregeneratedContent: {}     // New pregenerated content storage
 };
 
 // Initialize OpenAI
@@ -307,6 +308,9 @@ async function createMysterySlide() {
     updatePhaseIndicator();
     updateSlideHistory();
     
+    // Begin pregeneration of possible content paths in background
+    setTimeout(() => pregenerateContent(), 100);
+    
     // Hide loading state
     setLoading(false);
     
@@ -387,72 +391,96 @@ async function createSlide(slideType) {
   setLoading(true, `Generating ${slideType} content...`);
   
   try {
-    // Generate system prompt
-    const systemPrompt = createSlideSystemPrompt(slideType);
+    let slideContent = "";
+    let imageUrl = null;
+    let correctAnswer = null;
     
-    // Prepare context of existing cards
-    const messages = [{ role: "system", content: systemPrompt }];
-    
-    // Add all previous cards as context
-    for (let i = 0; i < gameState.slides.length; i++) {
-      messages.push(
-        { role: "user", content: `${gameState.slides[i]} Card:` },
-        { role: "assistant", content: gameState.content[i] }
-      );
-    }
-    
-    // Add specific request for this card type
-    messages.push({ role: "user", content: `Generate a ${slideType} card for this mystery.` });
-    
-    // Special handling for Reveal card
-    if (slideType === "Reveal") {
-      // Ensure we have enough cards
-      if (gameState.slides.length < CONFIG.minSlidesBeforeReveal) {
-        elements.instructionBar.textContent = 
-          `Need more investigation before reveal. Add at least ${CONFIG.minSlidesBeforeReveal - gameState.slides.length} more cards.`;
-        setLoading(false);
-        return;
+    // Check if we have pregenerated content for this slide type
+    if (gameState.pregeneratedContent && gameState.pregeneratedContent[slideType]) {
+      console.log(`Using pregenerated ${slideType} content`);
+      
+      if (slideType === "Reveal") {
+        slideContent = gameState.pregeneratedContent[slideType].content;
+        correctAnswer = gameState.pregeneratedContent[slideType].correctAnswer;
+        // Store correct answer
+        gameState.correctAnswer = correctAnswer;
+        console.log(`Theory #${correctAnswer} is incorrect (from pregenerated content)`);
+      } else {
+        slideContent = gameState.pregeneratedContent[slideType].content;
+        imageUrl = gameState.pregeneratedContent[slideType].image;
       }
       
-      // Special system reminder for Reveal card
-      messages.push({
-        role: "system",
-        content: "Remember to create exactly 5 theories, 4 true and 1 false. Clearly number them as Theory #1, Theory #2, etc."
-      });
+      // Remove the used pregenerated content
+      delete gameState.pregeneratedContent[slideType];
+    } else {
+      // Generate new content if no pregenerated content is available
+      // Generate system prompt
+      const systemPrompt = createSlideSystemPrompt(slideType);
       
-      // Update game phase
-      gameState.phase = "reveal";
-    }
-    
-    // Call API to generate content
-    const response = await openai.chat.completions.create({
-      model: CONFIG.apiModel,
-      messages: messages
-    });
-    
-    // Get card content
-    const slideContent = response.choices[0].message.content;
-    
-    // For Reveal card, determine which theory is false
-    if (slideType === "Reveal") {
-      // Ask which theory is false
-      const falseTheoryMessages = [
-        ...messages,
-        { role: "assistant", content: slideContent },
-        { role: "user", content: "Which theory number contains a false statement? Reply with just one number 1-5." }
-      ];
+      // Prepare context of existing cards
+      const messages = [{ role: "system", content: systemPrompt }];
       
-      const falseTheoryResponse = await openai.chat.completions.create({
+      // Add all previous cards as context
+      for (let i = 0; i < gameState.slides.length; i++) {
+        messages.push(
+          { role: "user", content: `${gameState.slides[i]} Card:` },
+          { role: "assistant", content: gameState.content[i] }
+        );
+      }
+      
+      // Add specific request for this card type
+      messages.push({ role: "user", content: `Generate a ${slideType} card for this mystery.` });
+      
+      // Special handling for Reveal card
+      if (slideType === "Reveal") {
+        // Ensure we have enough cards
+        if (gameState.slides.length < CONFIG.minSlidesBeforeReveal) {
+          elements.instructionBar.textContent = 
+            `Need more investigation before reveal. Add at least ${CONFIG.minSlidesBeforeReveal - gameState.slides.length} more cards.`;
+          setLoading(false);
+          return;
+        }
+        
+        // Special system reminder for Reveal card
+        messages.push({
+          role: "system",
+          content: "Remember to create exactly 5 theories, 4 true and 1 false. Clearly number them as Theory #1, Theory #2, etc."
+        });
+        
+        // Update game phase
+        gameState.phase = "reveal";
+      }
+      
+      // Call API to generate content
+      const response = await openai.chat.completions.create({
         model: CONFIG.apiModel,
-        messages: falseTheoryMessages
+        messages: messages
       });
       
-      const falseTheoryContent = falseTheoryResponse.choices[0].message.content;
-      const falseTheoryNumber = parseInt(falseTheoryContent.match(/\d+/)[0]);
+      // Get card content
+      slideContent = response.choices[0].message.content;
       
-      // Store correct answer
-      gameState.correctAnswer = falseTheoryNumber;
-      console.log(`Theory #${falseTheoryNumber} is incorrect`);
+      // For Reveal card, determine which theory is false
+      if (slideType === "Reveal") {
+        // Ask which theory is false
+        const falseTheoryMessages = [
+          ...messages,
+          { role: "assistant", content: slideContent },
+          { role: "user", content: "Which theory number contains a false statement? Reply with just one number 1-5." }
+        ];
+        
+        const falseTheoryResponse = await openai.chat.completions.create({
+          model: CONFIG.apiModel,
+          messages: falseTheoryMessages
+        });
+        
+        const falseTheoryContent = falseTheoryResponse.choices[0].message.content;
+        correctAnswer = parseInt(falseTheoryContent.match(/\d+/)[0]);
+        
+        // Store correct answer
+        gameState.correctAnswer = correctAnswer;
+        console.log(`Theory #${correctAnswer} is incorrect`);
+      }
     }
     
     // Add to game state
@@ -461,13 +489,29 @@ async function createSlide(slideType) {
     gameState.originalContent.push(slideContent);
     gameState.currentIndex = gameState.slides.length - 1;
     
-    // 只生成一次图片，且Reveal卡片不生成图片
+    // Handle image if needed
     if (slideType !== "Reveal") {
-      await generateImage(slideContent, gameState.currentIndex);
+      if (imageUrl) {
+        // Use pregenerated image
+        while (gameState.images.length <= gameState.currentIndex) {
+          gameState.images.push(null);
+        }
+        gameState.images[gameState.currentIndex] = imageUrl;
+        updateImageDisplay(gameState.currentIndex);
+      } else {
+        // Generate new image
+        await generateImage(slideContent, gameState.currentIndex);
+      }
     }
-    // 修改：检查新卡片和现有卡片之间的强关联
+    
+    // Check for associations if applicable
     if (slideType === "Evidence" || slideType === "Character" || slideType === "Action" || slideType === "Location") {
       await checkForStrongAssociations(gameState.currentIndex);
+    }
+    
+    // Start background pregeneration of additional content
+    if (!gameState.pregeneratedContent || Object.keys(gameState.pregeneratedContent).length === 0) {
+      setTimeout(() => pregenerateContent(), 100);
     }
     
     // Update UI
@@ -635,44 +679,59 @@ async function submitTheory(theoryNumber) {
     // 停止背景音乐
     stopBackgroundMusic();
     
-    // Create messages for conclusion
-    const messages = [
-      {
-        role: "system",
-        content: `Generate a brief conclusion for the mystery based on whether the player correctly identified the false theory.
+    let conclusion = "";
+    
+    // Check if we have a pregenerated conclusion
+    if (gameState.pregeneratedContent && 
+        gameState.pregeneratedContent["Reveal"] && 
+        gameState.pregeneratedContent["Reveal"].conclusions && 
+        gameState.pregeneratedContent["Reveal"].conclusions[theoryNumber]) {
+      
+      console.log("Using pregenerated conclusion");
+      conclusion = gameState.pregeneratedContent["Reveal"].conclusions[theoryNumber];
+      
+      // Clean up pregenerated content
+      delete gameState.pregeneratedContent["Reveal"];
+    } else {
+      // Create messages for conclusion
+      const messages = [
+        {
+          role: "system",
+          content: `Generate a brief conclusion for the mystery based on whether the player correctly identified the false theory.
 
 ${isCorrect ? 
   "They correctly identified the false theory. Provide a concise solution in 2-3 sentences." : 
   `They incorrectly thought Theory #${theoryNumber} was false, when Theory #${gameState.correctAnswer} was false. Provide a brief flawed conclusion.`}
 
 Keep it under 100 words total.`
+        }
+      ];
+      
+      // Add all card history
+      for (let i = 0; i < gameState.slides.length; i++) {
+        messages.push(
+          { role: "user", content: `${gameState.slides[i]} Card:` },
+          { role: "assistant", content: gameState.content[i] }
+        );
       }
-    ];
-    
-    // Add all card history
-    for (let i = 0; i < gameState.slides.length; i++) {
-      messages.push(
-        { role: "user", content: `${gameState.slides[i]} Card:` },
-        { role: "assistant", content: gameState.content[i] }
-      );
+      
+      // Add theory choice
+      messages.push({ 
+        role: "user", 
+        content: isCorrect ? 
+          `I think Theory #${theoryNumber} is false.` : 
+          `I think Theory #${theoryNumber} is false (but actually Theory #${gameState.correctAnswer} is false).`
+      });
+      
+      // Call API to get conclusion
+      const response = await openai.chat.completions.create({
+        model: CONFIG.apiModel,
+        messages: messages
+      });
+      
+      // Get conclusion
+      conclusion = response.choices[0].message.content;
     }
-    
-    // Add theory choice
-    messages.push({ 
-      role: "user", 
-      content: isCorrect ? 
-        `I think Theory #${theoryNumber} is false.` : 
-        `I think Theory #${theoryNumber} is false (but actually Theory #${gameState.correctAnswer} is false).`
-    });
-    
-    // Call API to get conclusion
-    const response = await openai.chat.completions.create({
-      model: CONFIG.apiModel,
-      messages: messages
-    });
-    
-    // Get conclusion
-    const conclusion = response.choices[0].message.content;
     
     // Add to game state
     gameState.slides.push("Conclusion");
@@ -989,60 +1048,42 @@ function updateSlideHistory() {
 
 // Reset game state
 function resetGameState() {
-  // Keep previous mysteries to ensure uniqueness
-  const prevMysteries = [...gameState.previousMysteries];
-  
-  // Reset state
   gameState = {
-    slides: [],
-    content: [],
-    originalContent: [],
-    currentIndex: -1,
-    phase: "initial",
-    insightChain: [],
-    insightLevel: 0,
-    modifiedSlides: new Set(),
-    previousMysteries: prevMysteries,
-    isLoading: false,
-    correctAnswer: null,
-    slideCounts: {
+    slides: [],                // Array of slide types
+    content: [],               // Array of slide contents
+    originalContent: [],       // Original content (before updates)
+    currentIndex: -1,          // Current slide index
+    phase: "initial",          // Game phase: initial, investigating, reveal, conclusion
+    insightChain: [],          // Insight chain tracking stack
+    insightLevel: 0,           // Current insight depth
+    modifiedSlides: new Set(), // Set of updated slides
+    previousMysteries: gameState ? [...gameState.previousMysteries] : [], // Keep record of previous mysteries
+    isLoading: false,          // Loading state
+    correctAnswer: null,       // Correct answer (for theory phase)
+    slideCounts: {             // Counts of each slide type
       Character: 0,
       Evidence: 0,
       Location: 0,
       Action: 0
     },
-    // 重置关联机制状态
-    associationCount: 0,
-    associationTargets: [],
-    // 重置图片状态
-    images: [],
-    isGeneratingImage: false,
+    // 添加关联机制状态
+    associationCount: 0,       // 当前已触发关联次数
+    associationTargets: [],    // 存储强关联对象 [{sourceIndex, targetIndex, reason}]
+    // 添加图片状态
+    images: [],                // 存储每张幻灯片的图片URL
+    isGeneratingImage: false,  // 图片生成状态
     pendingAssociationIndex: undefined,
-    // 重置音乐状态
-    isMusicPlaying: false
+    // 添加音乐状态
+    isMusicPlaying: false,      // 音乐播放状态
+    // Add pregenerated content storage
+    pregeneratedContent: {}    // Store pregenerated content
   };
   
-  // 停止背景音乐
-  stopBackgroundMusic();
-  
-  // ======= 20250511 - Clear image container on reset
   // Reset UI elements
-  elements.revealPanel.classList.remove('active');
-  elements.cardContent.className = "card-content";
-  elements.insightBadge.classList.remove('visible');
-  elements.slideHistory.innerHTML = "";
-
-  // ======= 20250511 - Clear image container
-  const imageContainer = document.getElementById('card-image');
-  if (imageContainer) {
-    imageContainer.innerHTML = '';
-    imageContainer.style.display = 'none';
-  }
-
-  // ======2025511update: 熄灭小灯
   if (elements.insightLight) elements.insightLight.classList.remove('active');
-
-  updatePhaseIndicator();
+  if (elements.revealPanel) elements.revealPanel.classList.remove('active');
+  if (elements.slideHistory) elements.slideHistory.innerHTML = '';
+  document.body.className = '';
 }
 
 // Support for global variable API key (if needed)
@@ -1256,4 +1297,207 @@ function enterInsightChain(targetIndex) {
     "Strong connection discovered! Use Forward (F) or Back (B) to find the updated card.";
   gameState.pendingAssociationIndex = targetIndex;
   if (elements.insightLight) elements.insightLight.classList.add('active');
+}
+
+// Pregenerate all possible content paths after mystery generation
+async function pregenerateContent() {
+  if (!gameState.slides.length || gameState.slides[0] !== "Mystery") {
+    console.log("Cannot pregenerate content: No mystery has been created yet");
+    return;
+  }
+  
+  console.log("Starting content pregeneration...");
+  
+  try {
+    // Store original game state
+    const originalIndex = gameState.currentIndex;
+    
+    // Track what we've pregenerated
+    const pregenerated = {
+      slides: {
+        Evidence: false,
+        Character: false,
+        Location: false,
+        Action: false
+      },
+      associations: new Set(),
+      theories: false
+    };
+    
+    // First pregenerate one of each slide type
+    for (const slideType of ["Evidence", "Character", "Location", "Action"]) {
+      if (gameState.slideCounts[slideType] < CONFIG.maxCardCounts[slideType]) {
+        console.log(`Pregenerating ${slideType} slide...`);
+        
+        // Generate system prompt
+        const systemPrompt = createSlideSystemPrompt(slideType);
+        
+        // Prepare context of existing cards
+        const messages = [{ role: "system", content: systemPrompt }];
+        
+        // Add all previous cards as context
+        for (let i = 0; i < gameState.slides.length; i++) {
+          messages.push(
+            { role: "user", content: `${gameState.slides[i]} Card:` },
+            { role: "assistant", content: gameState.content[i] }
+          );
+        }
+        
+        // Add specific request for this card type
+        messages.push({ role: "user", content: `Generate a ${slideType} card for this mystery.` });
+        
+        // Call API to generate content
+        const response = await openai.chat.completions.create({
+          model: CONFIG.apiModel,
+          messages: messages
+        });
+        
+        // Store pregenerated content
+        const slideContent = response.choices[0].message.content;
+        
+        // Pregenerate image for this content
+        const shortPrompt = await summarizeForDalle(slideContent);
+        const safeShortPrompt = shortPrompt.slice(0, 300).trim();
+        const imagePrompt = enhancePromptForDalle(safeShortPrompt);
+        
+        const imageResponse = await openai.images.generate({
+          model: "dall-e-3",
+          prompt: imagePrompt,
+          n: 1,
+          size: CONFIG.imageSize
+        });
+        
+        // Store pregenerated data
+        if (!gameState.pregeneratedContent) {
+          gameState.pregeneratedContent = {};
+        }
+        
+        gameState.pregeneratedContent[slideType] = {
+          content: slideContent,
+          image: imageResponse.data[0].url
+        };
+        
+        pregenerated.slides[slideType] = true;
+        console.log(`Pregenerated ${slideType} slide and image`);
+      }
+    }
+    
+    // Pregenerate reveal theories
+    if (gameState.slides.length >= CONFIG.minSlidesBeforeReveal) {
+      console.log("Pregenerating theories...");
+      
+      // Generate system prompt
+      const systemPrompt = createSlideSystemPrompt("Reveal");
+      
+      // Prepare context of existing cards
+      const messages = [{ role: "system", content: systemPrompt }];
+      
+      // Add all previous cards as context
+      for (let i = 0; i < gameState.slides.length; i++) {
+        messages.push(
+          { role: "user", content: `${gameState.slides[i]} Card:` },
+          { role: "assistant", content: gameState.content[i] }
+        );
+      }
+      
+      // Add specific request for reveal card
+      messages.push({ role: "user", content: `Generate a Reveal card for this mystery.` });
+      
+      // Special system reminder for Reveal card
+      messages.push({
+        role: "system",
+        content: "Remember to create exactly 5 theories, 4 true and 1 false. Clearly number them as Theory #1, Theory #2, etc."
+      });
+      
+      // Call API to generate content
+      const response = await openai.chat.completions.create({
+        model: CONFIG.apiModel,
+        messages: messages
+      });
+      
+      // Get reveal content
+      const revealContent = response.choices[0].message.content;
+      
+      // Ask which theory is false
+      const falseTheoryMessages = [
+        ...messages,
+        { role: "assistant", content: revealContent },
+        { role: "user", content: "Which theory number contains a false statement? Reply with just one number 1-5." }
+      ];
+      
+      const falseTheoryResponse = await openai.chat.completions.create({
+        model: CONFIG.apiModel,
+        messages: falseTheoryMessages
+      });
+      
+      const falseTheoryContent = falseTheoryResponse.choices[0].message.content;
+      const falseTheoryNumber = parseInt(falseTheoryContent.match(/\d+/)[0]);
+      
+      // Pregenerate conclusions for each theory selection
+      const conclusions = {};
+      
+      for (let theoryNum = 1; theoryNum <= 5; theoryNum++) {
+        const isCorrect = (theoryNum === falseTheoryNumber);
+        
+        const conclusionMessages = [
+          {
+            role: "system",
+            content: `Generate a brief conclusion for the mystery based on whether the player correctly identified the false theory.
+
+${isCorrect ? 
+  "They correctly identified the false theory. Provide a concise solution in 2-3 sentences." : 
+  `They incorrectly thought Theory #${theoryNum} was false, when Theory #${falseTheoryNumber} was false. Provide a brief flawed conclusion.`}
+
+Keep it under 100 words total.`
+          }
+        ];
+        
+        // Add all card history
+        for (let i = 0; i < gameState.slides.length; i++) {
+          conclusionMessages.push(
+            { role: "user", content: `${gameState.slides[i]} Card:` },
+            { role: "assistant", content: gameState.content[i] }
+          );
+        }
+        
+        // Add theory choice
+        conclusionMessages.push({ 
+          role: "user", 
+          content: isCorrect ? 
+            `I think Theory #${theoryNum} is false.` : 
+            `I think Theory #${theoryNum} is false (but actually Theory #${falseTheoryNumber} is false).`
+        });
+        
+        // Call API to get conclusion
+        const conclusionResponse = await openai.chat.completions.create({
+          model: CONFIG.apiModel,
+          messages: conclusionMessages
+        });
+        
+        conclusions[theoryNum] = conclusionResponse.choices[0].message.content;
+        console.log(`Pregenerated conclusion for theory ${theoryNum}`);
+      }
+      
+      // Store pregenerated reveal data
+      if (!gameState.pregeneratedContent) {
+        gameState.pregeneratedContent = {};
+      }
+      
+      gameState.pregeneratedContent["Reveal"] = {
+        content: revealContent,
+        correctAnswer: falseTheoryNumber,
+        conclusions: conclusions
+      };
+      
+      pregenerated.theories = true;
+    }
+    
+    // Restore original state
+    gameState.currentIndex = originalIndex;
+    
+    console.log("Content pregeneration completed!");
+    
+  } catch (error) {
+    console.error("Error during content pregeneration:", error);
+  }
 }
