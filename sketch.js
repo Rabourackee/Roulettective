@@ -5,7 +5,7 @@ import OpenAI from 'openai';
 
 // Game configuration
 const CONFIG = {
-  apiModel: "gpt-4o",          // API model to use
+  apiModel: "gpt-4o-mini",          // API model to use
   maxHistory: 10,              // Maximum history records
   minSlidesBeforeReveal: 4,    // Minimum cards needed before reveal phase
   insightDuration: 5000,       // Insight badge display time (milliseconds)
@@ -1119,7 +1119,7 @@ function filterSensitiveWords(text) {
   const sensitiveWords = [
     'blood', 'murder', 'weapon', 'dead', 'kill', 'stab', 'wound', 'corpse', 'body', 'death',
     'suicide', 'hanged', 'strangled', 'gun', 'knife', 'shoot', 'shot', 'stabbed', 'killed',
-    'victim', 'crime', 'violence', 'injury', 'bullet', 'suffocate', 'poison', 'explosion'
+    'crime', 'violence', 'injury', 'bullet', 'suffocate', 'poison', 
   ];
   let filtered = text;
   sensitiveWords.forEach(word => {
