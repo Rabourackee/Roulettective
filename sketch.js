@@ -308,8 +308,9 @@ async function createMysterySlide() {
     updatePhaseIndicator();
     updateSlideHistory();
     
-    // Begin pregeneration of possible content paths in background
-    setTimeout(() => pregenerateContent(), 100);
+    // Begin multi-layered pregeneration of possible content paths in background
+    // Generate up to 3 layers of future content
+    setTimeout(() => pregenerateContent(3), 100);
     
     // Hide loading state
     setLoading(false);
@@ -395,9 +396,48 @@ async function createSlide(slideType) {
     let imageUrl = null;
     let correctAnswer = null;
     
-    // Check if we have pregenerated content for this slide type
-    if (gameState.pregeneratedContent && gameState.pregeneratedContent[slideType]) {
-      console.log(`Using pregenerated ${slideType} content`);
+    // Try to get content from the pregenerated paths system first
+    let foundInPaths = false;
+    
+    // Create a path representing our current sequence plus the new slide type
+    if (gameState.pregeneratedPaths) {
+      // We need to get the current sequence by extracting just the slide types
+      const currentSequence = gameState.slides.map(slide => slide);
+      
+      // Remove "Mystery" from beginning if present
+      if (currentSequence[0] === "Mystery") {
+        currentSequence.shift();
+      }
+      
+      // Create a path with the new slide type
+      const pathWithNewSlide = [...currentSequence, slideType];
+      const pathId = pathWithNewSlide.join("-");
+      
+      console.log(`Looking for pregenerated path: ${pathId}`);
+      
+      if (gameState.pregeneratedPaths[pathId]) {
+        console.log(`Found pregenerated path: ${pathId}`);
+        const pathData = gameState.pregeneratedPaths[pathId];
+        
+        slideContent = pathData.content;
+        imageUrl = pathData.image;
+        
+        if (slideType === "Reveal") {
+          correctAnswer = pathData.correctAnswer;
+          // Store correct answer
+          gameState.correctAnswer = correctAnswer;
+          console.log(`Theory #${correctAnswer} is incorrect (from pregenerated path)`);
+        }
+        
+        // Remove the used pregenerated path
+        delete gameState.pregeneratedPaths[pathId];
+        foundInPaths = true;
+      }
+    }
+    
+    // If not found in paths, check legacy pregenerated content
+    if (!foundInPaths && gameState.pregeneratedContent && gameState.pregeneratedContent[slideType]) {
+      console.log(`Using legacy pregenerated ${slideType} content`);
       
       if (slideType === "Reveal") {
         slideContent = gameState.pregeneratedContent[slideType].content;
@@ -412,8 +452,11 @@ async function createSlide(slideType) {
       
       // Remove the used pregenerated content
       delete gameState.pregeneratedContent[slideType];
-    } else {
-      // Generate new content if no pregenerated content is available
+    } 
+    // Generate new content if no pregenerated content is available
+    else if (!foundInPaths) {
+      console.log(`No pregenerated content found for ${slideType}, generating new content`);
+      
       // Generate system prompt
       const systemPrompt = createSlideSystemPrompt(slideType);
       
@@ -510,9 +553,8 @@ async function createSlide(slideType) {
     }
     
     // Start background pregeneration of additional content
-    if (!gameState.pregeneratedContent || Object.keys(gameState.pregeneratedContent).length === 0) {
-      setTimeout(() => pregenerateContent(), 100);
-    }
+    // Trigger deeper pregeneration to maintain 2-3 layers ahead
+    setTimeout(() => pregenerateContent(3), 100);
     
     // Update UI
     updateUI();
@@ -680,19 +722,54 @@ async function submitTheory(theoryNumber) {
     stopBackgroundMusic();
     
     let conclusion = "";
+    let foundPregenerated = false;
     
-    // Check if we have a pregenerated conclusion
-    if (gameState.pregeneratedContent && 
+    // Check for pregenerated conclusions in paths first
+    if (gameState.pregeneratedPaths) {
+      // Get the current sequence of slide types, excluding Mystery
+      const currentSequence = gameState.slides.map(slide => slide);
+      if (currentSequence[0] === "Mystery") {
+        currentSequence.shift();
+      }
+      
+      // Create pathId with Conclusion
+      const conclusionPathId = [...currentSequence, "Conclusion"].join("-");
+      
+      console.log(`Looking for pregenerated conclusion path: ${conclusionPathId}`);
+      
+      // Try to find pregenerated conclusion based on theory choice
+      if (gameState.pregeneratedPaths[conclusionPathId] && 
+          gameState.pregeneratedPaths[conclusionPathId].conclusions && 
+          gameState.pregeneratedPaths[conclusionPathId].conclusions[theoryNumber]) {
+        
+        console.log(`Found pregenerated conclusion path for theory #${theoryNumber}`);
+        conclusion = gameState.pregeneratedPaths[conclusionPathId].conclusions[theoryNumber];
+        foundPregenerated = true;
+        
+        // Clean up used path
+        delete gameState.pregeneratedPaths[conclusionPathId];
+      }
+    }
+    
+    // Check if we have a pregenerated conclusion in legacy format
+    if (!foundPregenerated && 
+        gameState.pregeneratedContent && 
         gameState.pregeneratedContent["Reveal"] && 
         gameState.pregeneratedContent["Reveal"].conclusions && 
         gameState.pregeneratedContent["Reveal"].conclusions[theoryNumber]) {
       
-      console.log("Using pregenerated conclusion");
+      console.log("Using legacy pregenerated conclusion");
       conclusion = gameState.pregeneratedContent["Reveal"].conclusions[theoryNumber];
+      foundPregenerated = true;
       
       // Clean up pregenerated content
       delete gameState.pregeneratedContent["Reveal"];
-    } else {
+    }
+    
+    // Generate conclusion if none was found
+    if (!foundPregenerated) {
+      console.log(`No pregenerated conclusion found for theory #${theoryNumber}, generating new one`);
+      
       // Create messages for conclusion
       const messages = [
         {
@@ -1075,8 +1152,9 @@ function resetGameState() {
     pendingAssociationIndex: undefined,
     // 添加音乐状态
     isMusicPlaying: false,      // 音乐播放状态
-    // Add pregenerated content storage
-    pregeneratedContent: {}    // Store pregenerated content
+    // Add pregeneration storage
+    pregeneratedContent: {},    // Store direct pregenerated content
+    pregeneratedPaths: {}       // Store multi-layer pregenerated paths
   };
   
   // Reset UI elements
@@ -1236,6 +1314,9 @@ async function navigateBack() {
     setTimeout(() => {
       elements.cardContent.classList.remove('transition');
     }, 400);
+    
+    // Maintain pregeneration depth as user navigates
+    maintainPregenerationDepth();
   }
 }
 async function navigateForward() {
@@ -1263,6 +1344,9 @@ async function navigateForward() {
     setTimeout(() => {
       elements.cardContent.classList.remove('transition');
     }, 400);
+    
+    // Maintain pregeneration depth as user navigates
+    maintainPregenerationDepth();
   }
 }
 async function navigateReturn() {
@@ -1300,35 +1384,75 @@ function enterInsightChain(targetIndex) {
 }
 
 // Pregenerate all possible content paths after mystery generation
-async function pregenerateContent() {
+async function pregenerateContent(depth = 2) {
   if (!gameState.slides.length || gameState.slides[0] !== "Mystery") {
     console.log("Cannot pregenerate content: No mystery has been created yet");
     return;
   }
   
-  console.log("Starting content pregeneration...");
+  console.log(`Starting content pregeneration with depth ${depth}...`);
   
   try {
-    // Store original game state
-    const originalIndex = gameState.currentIndex;
-    
-    // Track what we've pregenerated
-    const pregenerated = {
-      slides: {
-        Evidence: false,
-        Character: false,
-        Location: false,
-        Action: false
-      },
-      associations: new Set(),
-      theories: false
+    // Store original game state to restore later
+    const originalState = {
+      index: gameState.currentIndex,
+      slides: [...gameState.slides],
+      content: [...gameState.content],
+      originalContent: [...gameState.originalContent],
+      slideCounts: { ...gameState.slideCounts },
+      images: [...gameState.images]
     };
     
-    // First pregenerate one of each slide type
-    for (const slideType of ["Evidence", "Character", "Location", "Action"]) {
-      if (gameState.slideCounts[slideType] < CONFIG.maxCardCounts[slideType]) {
-        console.log(`Pregenerating ${slideType} slide...`);
-        
+    // Create a simulation state for pregeneration
+    // This won't affect the actual game state
+    const simulationState = {
+      slides: [...gameState.slides],
+      content: [...gameState.content],
+      originalContent: [...gameState.originalContent],
+      slideCounts: { ...gameState.slideCounts },
+      currentPath: [],
+      processedPaths: new Set(),
+    };
+    
+    // Initialize pregenerated content structure if needed
+    if (!gameState.pregeneratedContent) {
+      gameState.pregeneratedContent = {};
+    }
+    
+    // Initialize pregeneratedPaths if needed
+    if (!gameState.pregeneratedPaths) {
+      gameState.pregeneratedPaths = {};
+    }
+    
+    // First pregenerate direct next steps from current state
+    await pregenerateDirectNextSteps();
+    
+    // Then recursively pregenerate deeper paths if depth > 1
+    if (depth > 1) {
+      await pregenerateDeepPaths(simulationState, depth, []);
+    }
+    
+    console.log("Multi-layer content pregeneration completed!");
+    
+  } catch (error) {
+    console.error("Error during content pregeneration:", error);
+  }
+}
+
+// Pregenerate direct next possible steps from current game state
+async function pregenerateDirectNextSteps() {
+  // First pregenerate one of each slide type if available
+  for (const slideType of ["Evidence", "Character", "Location", "Action"]) {
+    if (gameState.slideCounts[slideType] < CONFIG.maxCardCounts[slideType]) {
+      // Don't regenerate if we already have it
+      if (gameState.pregeneratedContent[slideType]) {
+        console.log(`Already have pregenerated ${slideType}`);
+        continue;
+      }
+      
+      console.log(`Pregenerating ${slideType} slide...`);
+      
+      try {
         // Generate system prompt
         const systemPrompt = createSlideSystemPrompt(slideType);
         
@@ -1367,25 +1491,25 @@ async function pregenerateContent() {
           size: CONFIG.imageSize
         });
         
-        // Store pregenerated data
-        if (!gameState.pregeneratedContent) {
-          gameState.pregeneratedContent = {};
-        }
-        
+        // Store in pregenerated content
         gameState.pregeneratedContent[slideType] = {
           content: slideContent,
           image: imageResponse.data[0].url
         };
         
-        pregenerated.slides[slideType] = true;
         console.log(`Pregenerated ${slideType} slide and image`);
+      } catch (error) {
+        console.error(`Error pregenerating ${slideType}:`, error);
       }
     }
+  }
+  
+  // Check if we should pregenerate reveal theories 
+  if (gameState.slides.length >= CONFIG.minSlidesBeforeReveal && !gameState.pregeneratedContent["Reveal"]) {
+    // Pregenerate reveal when we're close enough
+    console.log("Pregenerating theories...");
     
-    // Pregenerate reveal theories
-    if (gameState.slides.length >= CONFIG.minSlidesBeforeReveal) {
-      console.log("Pregenerating theories...");
-      
+    try {
       // Generate system prompt
       const systemPrompt = createSlideSystemPrompt("Reveal");
       
@@ -1460,12 +1584,16 @@ Keep it under 100 words total.`
           );
         }
         
+        // Add reveal card as context too
+        conclusionMessages.push(
+          { role: "user", content: `Reveal Card:` },
+          { role: "assistant", content: revealContent }
+        );
+        
         // Add theory choice
         conclusionMessages.push({ 
           role: "user", 
-          content: isCorrect ? 
-            `I think Theory #${theoryNum} is false.` : 
-            `I think Theory #${theoryNum} is false (but actually Theory #${falseTheoryNumber} is false).`
+          content: `I think Theory #${theoryNum} is false.`
         });
         
         // Call API to get conclusion
@@ -1479,25 +1607,247 @@ Keep it under 100 words total.`
       }
       
       // Store pregenerated reveal data
-      if (!gameState.pregeneratedContent) {
-        gameState.pregeneratedContent = {};
-      }
-      
       gameState.pregeneratedContent["Reveal"] = {
         content: revealContent,
         correctAnswer: falseTheoryNumber,
         conclusions: conclusions
       };
-      
-      pregenerated.theories = true;
+    } catch (error) {
+      console.error("Error pregenerating theories:", error);
+    }
+  }
+}
+
+// Recursively pregenerate deeper paths
+async function pregenerateDeepPaths(simulationState, maxDepth, currentPath) {
+  // Stop if we've reached the maximum depth
+  if (currentPath.length >= maxDepth) {
+    return;
+  }
+
+  // Get available slide types for the next step
+  const availableSlideTypes = [];
+  
+  // Check which slide types are available
+  for (const slideType of ["Evidence", "Character", "Location", "Action"]) {
+    if (simulationState.slideCounts[slideType] < CONFIG.maxCardCounts[slideType]) {
+      availableSlideTypes.push(slideType);
+    }
+  }
+  
+  // Add Reveal if we have enough slides and haven't added it yet
+  if (simulationState.slides.length >= CONFIG.minSlidesBeforeReveal && 
+      !simulationState.slides.includes("Reveal")) {
+    availableSlideTypes.push("Reveal");
+  }
+  
+  // Process each available slide type
+  for (const slideType of availableSlideTypes) {
+    // Create a new path ID
+    const newPath = [...currentPath, slideType];
+    const pathId = newPath.join("-");
+    
+    // Skip if we've already processed this path
+    if (simulationState.processedPaths.has(pathId)) {
+      continue;
     }
     
-    // Restore original state
-    gameState.currentIndex = originalIndex;
+    console.log(`Pregenerating path ${pathId} at depth ${newPath.length}...`);
     
-    console.log("Content pregeneration completed!");
-    
-  } catch (error) {
-    console.error("Error during content pregeneration:", error);
+    try {
+      // Create a simulation state copy for this branch
+      const branchState = {
+        slides: [...simulationState.slides],
+        content: [...simulationState.content],
+        originalContent: [...simulationState.originalContent],
+        slideCounts: { ...simulationState.slideCounts },
+      };
+      
+      // Generate system prompt
+      const systemPrompt = createSlideSystemPrompt(slideType);
+      
+      // Prepare context of existing cards
+      const messages = [{ role: "system", content: systemPrompt }];
+      
+      // Add all previous cards as context
+      for (let i = 0; i < branchState.slides.length; i++) {
+        messages.push(
+          { role: "user", content: `${branchState.slides[i]} Card:` },
+          { role: "assistant", content: branchState.content[i] }
+        );
+      }
+      
+      // Add specific request for this card type
+      messages.push({ role: "user", content: `Generate a ${slideType} card for this mystery.` });
+      
+      // Special handling for Reveal card
+      if (slideType === "Reveal") {
+        messages.push({
+          role: "system",
+          content: "Remember to create exactly 5 theories, 4 true and 1 false. Clearly number them as Theory #1, Theory #2, etc."
+        });
+      }
+      
+      // Call API to generate content
+      const response = await openai.chat.completions.create({
+        model: CONFIG.apiModel,
+        messages: messages
+      });
+      
+      // Get card content
+      const slideContent = response.choices[0].message.content;
+      
+      // Generate image for non-Reveal cards
+      let imageUrl = null;
+      if (slideType !== "Reveal") {
+        try {
+          const shortPrompt = await summarizeForDalle(slideContent);
+          const safeShortPrompt = shortPrompt.slice(0, 300).trim();
+          const imagePrompt = enhancePromptForDalle(safeShortPrompt);
+          
+          const imageResponse = await openai.images.generate({
+            model: "dall-e-3",
+            prompt: imagePrompt,
+            n: 1,
+            size: CONFIG.imageSize
+          });
+          
+          imageUrl = imageResponse.data[0].url;
+        } catch (error) {
+          console.error(`Error generating image for path ${pathId}:`, error);
+        }
+      }
+      
+      // Generate special content for Reveal
+      let correctAnswer = null;
+      let conclusions = null;
+      
+      if (slideType === "Reveal") {
+        try {
+          // Ask which theory is false
+          const falseTheoryMessages = [
+            ...messages,
+            { role: "assistant", content: slideContent },
+            { role: "user", content: "Which theory number contains a false statement? Reply with just one number 1-5." }
+          ];
+          
+          const falseTheoryResponse = await openai.chat.completions.create({
+            model: CONFIG.apiModel,
+            messages: falseTheoryMessages
+          });
+          
+          const falseTheoryContent = falseTheoryResponse.choices[0].message.content;
+          correctAnswer = parseInt(falseTheoryContent.match(/\d+/)[0]);
+          
+          // Pregenerate at least one conclusion
+          const theoryNum = correctAnswer; // Just generate the correct one to save tokens
+          const isCorrect = true;
+          
+          const conclusionMessages = [
+            {
+              role: "system",
+              content: `Generate a brief conclusion for the mystery based on whether the player correctly identified the false theory.
+              
+              ${isCorrect ? 
+              "They correctly identified the false theory. Provide a concise solution in 2-3 sentences." : 
+              `They incorrectly thought Theory #${theoryNum} was false, when Theory #${correctAnswer} was false. Provide a brief flawed conclusion.`}
+              
+              Keep it under 100 words total.`
+            }
+          ];
+          
+          // Add all card history
+          for (let i = 0; i < branchState.slides.length; i++) {
+            conclusionMessages.push(
+              { role: "user", content: `${branchState.slides[i]} Card:` },
+              { role: "assistant", content: branchState.content[i] }
+            );
+          }
+          
+          // Add reveal card as context too
+          conclusionMessages.push(
+            { role: "user", content: `Reveal Card:` },
+            { role: "assistant", content: slideContent }
+          );
+          
+          // Add theory choice
+          conclusionMessages.push({ 
+            role: "user", 
+            content: `I think Theory #${theoryNum} is false.`
+          });
+          
+          // Call API to get conclusion
+          const conclusionResponse = await openai.chat.completions.create({
+            model: CONFIG.apiModel,
+            messages: conclusionMessages
+          });
+          
+          conclusions = {};
+          conclusions[theoryNum] = conclusionResponse.choices[0].message.content;
+        } catch (error) {
+          console.error(`Error generating theory data for path ${pathId}:`, error);
+        }
+      }
+      
+      // Update simulation state with this new content
+      branchState.slides.push(slideType);
+      branchState.content.push(slideContent);
+      branchState.originalContent.push(slideContent);
+      
+      // Update card counts
+      if (slideType !== "Reveal" && slideType !== "Mystery" && slideType !== "Conclusion") {
+        branchState.slideCounts[slideType]++;
+      }
+      
+      // Store pregenerated content
+      const pathContent = {
+        content: slideContent,
+        image: imageUrl,
+        nextSteps: {}
+      };
+      
+      if (slideType === "Reveal") {
+        pathContent.correctAnswer = correctAnswer;
+        pathContent.conclusions = conclusions;
+      }
+      
+      // Add to pregeneratedPaths using the path ID
+      gameState.pregeneratedPaths[pathId] = pathContent;
+      
+      // Mark this path as processed
+      simulationState.processedPaths.add(pathId);
+      
+      // Recursively pregenerate deeper paths
+      await pregenerateDeepPaths(branchState, maxDepth, newPath);
+    } catch (error) {
+      console.error(`Error pregenerating path ${pathId}:`, error);
+    }
   }
+}
+
+// Function to get pregenerated content for a specific path
+function getPregeneratedContent(path) {
+  if (!gameState.pregeneratedPaths) return null;
+  
+  const pathId = path.join("-");
+  return gameState.pregeneratedPaths[pathId] || null;
+}
+
+// Function to ensure pregeneration is maintained as user navigates
+function maintainPregenerationDepth() {
+  if (gameState.isLoading || gameState.phase === "conclusion" || gameState.slides.length === 0) {
+    return;
+  }
+  
+  // Skip if we already have substantial pregenerated content
+  const pathCount = Object.keys(gameState.pregeneratedPaths || {}).length;
+  const contentCount = Object.keys(gameState.pregeneratedContent || {}).length;
+  
+  if (pathCount + contentCount > 10) {
+    console.log(`Already have ${pathCount + contentCount} pregenerated items, skipping generation`);
+    return;
+  }
+  
+  // Schedule pregeneration in the background
+  setTimeout(() => pregenerateContent(3), 500);
 }
