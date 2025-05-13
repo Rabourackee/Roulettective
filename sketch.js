@@ -329,7 +329,8 @@ Guidelines:
 - Do NOT include any suspects, characters, or potential perpetrators.
 - Each sentence should be direct, visual, and simple.
 - Avoid any sensitive or violent words (like blood, murder, weapon, dead, kill, stab, wound, corpse, body, death, suicide, hanged, strangled, gun, knife, shoot, shot, stabbed, killed, victim, crime, etc).
-- Do not include any meta information, instructions, or additional content.`;
+- Do not include any meta information, instructions, or additional content.
+- Keep the total length under 400 characters (including spaces).`;
 
   if (gameState.previousMysteries.length > 0) {
     prompt += `\n\nAvoid these previous themes: ${gameState.previousMysteries.join(", ")}`;
@@ -485,34 +486,23 @@ async function createSlide(slideType) {
   }
 }
 
-// ======2025511update: Enhanced slide system prompts for richer mystery structure
+// ======2025511update: 更加极简的卡片生成prompt
 function createSlideSystemPrompt(slideType) {
-  // ======2025511update: base prompt remains
-  let basePrompt = `You are assisting an interactive mystery game. Players insert slides to discover clues.
-Your job is to generate short and essential narrative content, always in English.
-Content must be extremely concise (max 2-3 sentences).
-Focus only on new information that directly relates to the mystery.
-All clues must make logical sense together.
-Occasionally introduce elements that could strongly relate to or contradict earlier information.`;
-
-  // ======2025511update: Enhanced prompts for each card type
   switch(slideType) {
+    case "Mystery":
+      return `Describe a crime scene in 3-4 very short sentences (max 200 characters total). Each sentence should be direct, visual, and simple. Focus only on what is seen. No names, no dialogue, no meta info.`;
     case "Evidence":
-      // Evidence may be crucial or misleading
-      return basePrompt + `\n\nFor this Evidence slide:\n- Describe one physical clue in 1-2 sentences maximum.\n- Randomly decide if this evidence is crucial or misleading/irrelevant, and make it clear in the description (e.g., 'this clue may be misleading' or 'this clue is crucial').\n- Be direct and factual, avoid speculation.\n- Focus on what's observed, not what it means.\n- Consider adding details that might confirm or contradict previously known information.`;
+      return `Describe the evidence in one very short sentence (max 50 characters). Only state what is seen. No explanation, no background.`;
     case "Character":
-      // Witness may change statement if new evidence/location appears
-      return basePrompt + `\n\nFor this Character slide:\n- Introduce one witness in 1-2 sentences maximum.\n- Include only their name, role, and a very brief statement.\n- If new evidence or location has appeared, the witness may change their statement or provide new information.\n- Keep it minimal but revealing.\n- Consider adding details about alibi, background, or connections that might relate to previous clues.`;
+      return `Output only:\nName: [name]\nRole: [role]\nStatement: "[one short sentence]". No extra info, no background, no dialogue except the statement.`;
     case "Location":
-      // New location may trigger chain reactions
-      return basePrompt + `\n\nFor this Location slide:\n- Describe one place in 1-2 sentences maximum.\n- Include just one distinctive detail.\n- If this location is new, it may trigger a chain reaction: a witness may recall something new, or a new clue may be found.\n- Be direct and specific.\n- Consider including elements that might connect to previous characters or evidence.`;
+      return `Describe the location and one key feature in one very short sentence (max 50 characters). No extra info, no background.`;
     case "Action":
-      // Action may upgrade/destroy evidence
-      return basePrompt + `\n\nFor this Action slide:\n- Describe one investigation step in 1-2 sentences maximum.\n- This action may cause a piece of evidence to be upgraded with new information, or be destroyed/removed from the case.\n- Focus only on what is done and what it reveals.\n- Be concise and clear.\n- Consider revealing information that contradicts or provides new insight into previous evidence or statements.`;
+      return `Describe the action and its direct result in one very short sentence (max 50 characters). No extra info, no background.`;
     case "Reveal":
-      return basePrompt + `\n\nFor this Reveal slide:\n1. Write exactly 5 theories (numbered 1-5).\n2. Each must be exactly 1 sentence.\n3. Four theories should be true, one false.\n4. The false one should be plausible but wrong.\n5. End with: 'Which theory is false?'`;
+      return `Write exactly 5 theories (numbered 1-5). Each must be exactly 1 sentence, as short as possible. Four theories should be true, one false. The false one should be plausible but wrong. End with: 'Which theory is false?'`;
     default:
-      return basePrompt;
+      return `Generate a very short, direct, and visual clue (max 50 characters).`;
   }
 }
 
@@ -1052,30 +1042,80 @@ window.OPENAI_API_KEY = ""; // Set directly here if not using .env
 window.setup = setup;
 document.addEventListener('DOMContentLoaded', setup);
 
-// ======2025511update: summarizeForDalle，AI精炼图片prompt，死亡场景翻译为"倒在地上"
+// ======2025511update: summarizeForDalle，处理所有卡片给DALL-E的输入
 async function summarizeForDalle(longPrompt) {
-  const systemPrompt = "You are an expert at summarizing crime scene descriptions for image generation. Summarize the following text into a single, vivid, English prompt under 300 characters (including spaces), focusing only on the visual scene and atmosphere. If the scene involves a dead person, always describe them as 'lying on the ground' or 'lying on the floor'. Do not include any names, dialogue, or meta information.";
+  const systemPrompt = `Summarize the following into a single, vivid, visual English prompt under 150 characters. Only keep the most essential visual elements. No names, no dialogue, no meta info, no smell, no atmosphere, no emotion. If the scene involves a dead person, always describe as 'a person is lying on the ground'.`;
+
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: longPrompt }
   ];
+  
   const response = await openai.chat.completions.create({
     model: CONFIG.apiModel,
     messages: messages
   });
-  return response.choices[0].message.content.trim();
+  
+  let summary = response.choices[0].message.content.trim();
+  
+  // 强制截断到指定字符数
+  if (summary.length > 150) {
+    summary = summary.slice(0, 150).trim();
+  }
+  
+  return summary;
+}
+
+// ======2025511update: 敏感词过滤系统（已恢复）
+function filterSensitiveWords(text) {
+  // 统一替换所有死亡/尸体相关词为"a person is lying on the ground"
+  const deathPatterns = [
+    /lifeless( [a-z]*)?/gi,
+    /corpse/gi,
+    /body/gi,
+    /dead/gi,
+    /death/gi,
+    /murder/gi,
+    /kill(ed|ing)?/gi,
+    /stab(bed|bing)?/gi,
+    /wound(ed)?/gi,
+    /blood(y)?/gi,
+    /suicide/gi,
+    /hanged/gi,
+    /strangled/gi,
+    /gun/gi,
+    /knife/gi,
+    /shoot(ing|er|s)?/gi,
+    /shot/gi,
+    /crime/gi,
+    /violence/gi,
+    /injury/gi,
+    /bullet/gi,
+    /suffocate/gi,
+    /poison/gi,
+    /sprawled/gi
+  ];
+  let filtered = text;
+  deathPatterns.forEach(pattern => {
+    filtered = filtered.replace(pattern, 'a person is lying on the ground');
+  });
+  // 去除气味、氛围等非视觉描述
+  filtered = filtered.replace(/a faint smell of [^.,]+[.,]?/gi, '');
+  filtered = filtered.replace(/atmosphere|eerie|ominous|sinister|creepy|haunting|mysterious|tense|chilling/gi, '');
+  filtered = filtered.replace(/\s{2,}/g, ' '); // 多余空格
+  return filtered.trim();
 }
 
 // ======2025511update: generateImage先AI精炼prompt再喂给DALL·E
 async function generateImage(prompt, index) {
   try {
-    // 先用AI精炼prompt
+    // 所有卡片都需要通过summarize处理后再给DALL-E
     const shortPrompt = await summarizeForDalle(prompt);
-    // ======2025511update: 强制截断到300字符以内
-    const safeShortPrompt = shortPrompt.slice(0, 300).trim();
+    // 恢复敏感词过滤
+    const safePrompt = filterSensitiveWords(shortPrompt);
     // 再走原有流程
-    const imagePrompt = enhancePromptForDalle(safeShortPrompt);
-    console.log(`Enhanced DALL-E prompt: ${imagePrompt}`);
+    const imagePrompt = enhancePromptForDalle(safePrompt);
+    console.log('DALL-E prompt:', imagePrompt);
     // Call DALL-E API to generate image
     const response = await openai.images.generate({
       model: "dall-e-3",
@@ -1107,26 +1147,12 @@ async function generateImage(prompt, index) {
 
 // ======2025511update: enhancePromptForDalle直接拼接风格关键词，不再取前两句
 function enhancePromptForDalle(prompt) {
-  // 先过滤敏感词
-  let safePrompt = filterSensitiveWords(prompt);
+  // 暂时停用敏感词过滤
+  // let safePrompt = filterSensitiveWords(prompt);
+  let safePrompt = prompt;
   // 拼接风格关键词
   let enhanced = `A vintage 1940s film noir mystery scene, black and white, dramatic lighting, high contrast, grainy texture. ${safePrompt}`;
   return enhanced;
-}
-
-// ======2025511update: enhancePromptForDalle直接拼接风格关键词，不再取前两句
-function filterSensitiveWords(text) {
-  const sensitiveWords = [
-    'blood', 'murder', 'weapon', 'dead', 'kill', 'stab', 'wound', 'corpse', 'body', 'death',
-    'suicide', 'hanged', 'strangled', 'gun', 'knife', 'shoot', 'shot', 'stabbed', 'killed',
-    'crime', 'violence', 'injury', 'bullet', 'suffocate', 'poison', 
-  ];
-  let filtered = text;
-  sensitiveWords.forEach(word => {
-    const regex = new RegExp(word, 'gi');
-    filtered = filtered.replace(regex, 'mystery');
-  });
-  return filtered;
 }
 
 // ======= 20250511 - Updated image display function with debugging
