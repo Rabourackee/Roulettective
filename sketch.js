@@ -501,8 +501,8 @@ Occasionally introduce elements that could strongly relate to or contradict earl
       // Evidence: only describe the clue, no mention of misleading/irrelevant
       return basePrompt + `\n\nFor this Evidence slide:\n- Describe one physical clue in 1-2 sentences maximum.\n- Be direct and factual, avoid speculation.\n- Focus on what's observed, not what it means.\n- Consider adding details that might confirm or contradict previously known information.`;
     case "Character":
-      // Character: only describe the character, no statement
-      return basePrompt + `\n\nFor this Character slide:\n- Introduce one witness in 1-2 sentences maximum.\n- Include only their name and role.\n- Do not generate any statement or quote.\n- Keep it minimal but revealing.\n- Consider adding details about alibi, background, or connections that might relate to previous clues.`;
+      // Character: only describe the character as the main focus, do not mention anyone lying on the floor or similar scene description
+      return basePrompt + `\n\nFor this Character slide:\n- Introduce one witness in 1-2 sentences maximum.\n- Focus on describing the character as the main subject (name, role, appearance, or background). \n- Do not generate any statement or quote.\n- The image for this card should focus on a portrait or clear depiction of the character, not the environment or a scene.\n- Keep it minimal but revealing.\n- Consider adding details about alibi, background, or connections that might relate to previous clues.`;
     case "Location":
       // New location may trigger chain reactions
       return basePrompt + `\n\nFor this Location slide:\n- Describe one place in 1-2 sentences maximum.\n- Include just one distinctive detail.\n- If this location is new, it may trigger a chain reaction: a witness may recall something new, or a new clue may be found.\n- Be direct and specific.\n- Consider including elements that might connect to previous characters or evidence.`;
@@ -1073,8 +1073,15 @@ async function generateImage(prompt, index) {
     const shortPrompt = await summarizeForDalle(prompt);
     // ======2025511update: 强制截断到300字符以内
     const safeShortPrompt = shortPrompt.slice(0, 300).trim();
-    // 再走原有流程
-    const imagePrompt = enhancePromptForDalle(safeShortPrompt);
+    // 检查当前slide类型
+    let imagePrompt;
+    if (gameState.slides && gameState.slides[index] === "Character") {
+      // Character卡片，生成肖像风格prompt
+      imagePrompt = `A portrait of ${safeShortPrompt}, vintage 1940s film noir style, black and white, dramatic lighting, high contrast, grainy texture.`;
+    } else {
+      // 其他卡片类型，保持原有风格
+      imagePrompt = enhancePromptForDalle(safeShortPrompt);
+    }
     console.log(`Enhanced DALL-E prompt: ${imagePrompt}`);
     // Call DALL-E API to generate image
     const response = await openai.images.generate({
