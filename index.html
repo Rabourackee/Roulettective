@@ -12,6 +12,7 @@
     <source src="assets/mystery_bgm.mp3" type="audio/mpeg">
   </audio>
   <div class="app-container">
+    <!-- Header is hidden in CSS -->
     <header>
       <div class="header-content">
         <h1>CRIME ARCHIVE</h1>
@@ -24,6 +25,7 @@
     </header>
 
     <main>
+      <!-- Left side: Slide description and image -->
       <div class="case-viewer">
         <div class="case-card" id="case-card">
           <div class="loading-overlay" id="loading-overlay">
@@ -55,6 +57,18 @@
         </div>
       </div>
 
+      <!-- Right side: Investigation journal -->
+      <div class="case-history">
+        <h3>INVESTIGATION JOURNAL</h3>
+        <div class="slide-history" id="slide-history">
+          <div class="journal-entry">
+            <div class="entry-date">DATE: [CURRENT]</div>
+            <div class="entry-content"></div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Controls panel is hidden in CSS but kept for functionality -->
       <div class="controls-panel">
         <div class="instruction-bar" id="instruction-bar">
           PRESS <kbd>M</kbd> TO INITIATE NEW CASE
@@ -79,22 +93,11 @@
             <button id="btn-forward" class="nav-btn">FORWARD (F)<span>⯈</span></button>
           </div>
         </div>
-        
-        <span class="insight-light" id="insight-light"></span>
       </div>
     </main>
     
-    <footer>
-      <div class="case-history">
-        <h3>INVESTIGATION JOURNAL</h3>
-        <div class="slide-history" id="slide-history">
-          <div class="journal-entry">
-            <div class="entry-date">DATE: [CURRENT]</div>
-            <div class="entry-content"></div>
-          </div>
-        </div>
-      </div>
-    </footer>
+    <!-- The red insight light, made visible in CSS -->
+    <span class="insight-light" id="insight-light"></span>
   </div>
   
   <script type="module" src="sketch.js"></script>

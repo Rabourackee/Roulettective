@@ -53,7 +53,9 @@ let gameState = {
   isGeneratingImage: false,  // 图片生成状态
   pendingAssociationIndex: undefined,
   // 添加音乐状态
-  isMusicPlaying: false      // 音乐播放状态
+  isMusicPlaying: false,     // 音乐播放状态
+  // ===== NEW: intro page index =====
+  introPageIndex: 0          // 0, 1, 2 for intro pages, null for normal game
 };
 
 // Initialize OpenAI
@@ -217,11 +219,19 @@ function attachEventListeners() {
 
 // Handle keyboard shortcuts
 function handleKeyPress(event) {
-  // Ignore keys if loading
   if (gameState.isLoading) return;
-  
   const key = event.key.toLowerCase();
-  
+  // If in intro mode, only allow navigation and M
+  if (gameState.introPageIndex !== null) {
+    if (key === 'b') { navigateBack(); return; }
+    if (key === 'f') { navigateForward(); return; }
+    if (key === 'm' && gameState.introPageIndex === 2) {
+      gameState.introPageIndex = null;
+      updateUI();
+      return;
+    }
+    return;
+  }
   // Handle based on key
   switch(key) {
     // Card types
@@ -737,6 +747,39 @@ function showError(message) {
 
 // Update UI based on current game state
 function updateUI() {
+  // ===== NEW: Show intro pages if in intro mode =====
+  if (gameState.introPageIndex !== null) {
+    const introData = [
+      {
+        img: 'intro1.png',
+        html: `<div class=\"case-intro\"><h2 style='margin-bottom:1.5em;'>You are a member of the <b>Mystery Analysis Division (MAD)</b> tasked with this investigation.</h2><p>Before you lies a dossier of official files and fragmented photographs.</p><p>Your mission is to uncover the truth concealed within these pages.</p><p style='margin-top:2em;'>Use <b>[Forward]</b> & <b>[Back]</b> to see different slides.</p></div>`
+      },
+      {
+        img: 'intro 2.png',
+        html: `<div class=\"case-intro\"><h2>Detective's Guide</h2><p>Insert <b>[Mystery]</b> to unveil the case.</p><p style='margin-top:1em;'>During your investigation:<br>Use <b>[Evidence]</b> to uncover vital clues.<br>Use <b>[Character]</b> to interrogate key figures.<br>Use <b>[Location]</b> to inspect relevant scenes.<br>Use <b>[Action]</b> to flex your detective prowess.</p><p style='margin-top:1em;'>When you've gathered enough leads:<br>Insert <b>[Reveal]</b> to open the trial.<br>Choose your <b>[Choice]</b> to expose the false testimony.</p><p style='margin-top:2em;font-style:italic;'>Trust no one—see through every deception.</p></div>`
+      },
+      {
+        img: 'intro 3.png',
+        html: `<div class=\"case-intro\"><h2>TOP SECRET DEVICE:<br>Roulettective</h2><p><b>Roulettective</b> is a Mastermind in MAD.<br>It helps you <b>COLLECT</b> and <b>ASSOCIATE</b> fragments of truth.</p><p style='margin-top:1em;'>When it flashes a new insight in <b>[LIGHT]</b>,<br>retrace your steps to unveil <b>HIDDEN EVIDENCE</b>.</p><p style='margin-top:2em;'>Work alongside <i>Roulettective</i>—see what others cannot.</p><p style='margin-top:2em;'><b>Press M to begin your investigation.</b></p></div>`
+      }
+    ];
+    const idx = gameState.introPageIndex;
+    // Set image (left)
+    elements.cardImage.style.display = 'block';
+    elements.cardImage.innerHTML = `<img src='${introData[idx].img}' alt='Intro Slide ${idx+1}' style='max-width:100%;max-height:400px;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.4);margin-bottom:2em;'>`;
+    // Hide text on left
+    elements.cardContent.className = 'card-content intro-mode';
+    elements.cardContent.innerHTML = '';
+    // Hide reveal panel
+    elements.revealPanel.classList.remove('active');
+    // Set indicator
+    elements.slideIndicator.textContent = `INTRO ${idx+1}/3`;
+    // Hide insight badge
+    elements.insightBadge.classList.remove('visible');
+    // Journal (right): show intro text only
+    elements.slideHistory.innerHTML = introData[idx].html;
+    return;
+  }
   // Update card content
   if (gameState.currentIndex >= 0 && gameState.currentIndex < gameState.content.length) {
     // Special handling for Reveal card format
@@ -800,14 +843,14 @@ function updateUI() {
       elements.slideIndicator.textContent += " ★";
     }
   } else {
-    // No cards yet
-    elements.cardContent.innerHTML = `
-      <p>Welcome to the Layered Reasoning Mystery Game.</p>
-      <p>Press <kbd>M</kbd> to start a new investigation.</p>
-      <p>Each mystery contains hidden layers of truth that will be revealed as your investigation deepens.</p>`;
-    elements.slideIndicator.textContent = "Welcome";
+    // No cards yet: do not show any welcome/standby page
+    elements.cardContent.className = 'card-content';
+    elements.cardContent.innerHTML = '';
+    elements.slideIndicator.textContent = '';
     elements.revealPanel.classList.remove('active');
     elements.cardImage.style.display = 'none';
+    // Journal (right): clear
+    elements.slideHistory.innerHTML = '';
   }
   // Update instruction bar based on game phase
   updateInstructionBar();
@@ -1019,7 +1062,9 @@ function resetGameState() {
     isGeneratingImage: false,
     pendingAssociationIndex: undefined,
     // 重置音乐状态
-    isMusicPlaying: false
+    isMusicPlaying: false,
+    // ===== NEW: intro page index =====
+    introPageIndex: 0          // 0, 1, 2 for intro pages, null for normal game
   };
   
   // 停止背景音乐
@@ -1179,6 +1224,14 @@ function updateImageDisplay(index) {
 // ======2025511update: navigateBack/navigateForward只在翻到pendingAssociationIndex时才更新内容和熄灭红灯
 async function navigateBack() {
   if (gameState.isLoading) return;
+  // If in intro mode
+  if (gameState.introPageIndex !== null) {
+    if (gameState.introPageIndex > 0) {
+      gameState.introPageIndex--;
+      updateUI();
+    }
+    return;
+  }
   if (gameState.slides.length === 0) return;
   if (gameState.currentIndex > 0) {
     gameState.currentIndex--;
@@ -1206,6 +1259,15 @@ async function navigateBack() {
 }
 async function navigateForward() {
   if (gameState.isLoading) return;
+  // If in intro mode
+  if (gameState.introPageIndex !== null) {
+    if (gameState.introPageIndex < 2) {
+      gameState.introPageIndex++;
+      updateUI();
+    }
+    // Do NOT auto-advance to game after last intro page
+    return;
+  }
   if (gameState.slides.length === 0) return;
   if (gameState.currentIndex < gameState.slides.length - 1) {
     gameState.currentIndex++;
