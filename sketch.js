@@ -58,6 +58,13 @@ let gameState = {
   introPageIndex: null       // null for normal game, 0/1/2 for intro pages
 };
 
+// 添加一个特殊导航状态管理
+let navigationState = {
+  introPages: 3,  // intro有3页
+  introVisited: false,  // 是否已访问过intro
+  gameStarted: false    // 游戏是否已开始
+};
+
 // Initialize OpenAI
 let openai;
 
@@ -116,6 +123,13 @@ async function setup() {
   try {
     console.log("Setup started");
     
+    // 初始化导航状态
+    navigationState = {
+      introPages: 3,
+      introVisited: false,
+      gameStarted: false
+    };
+    
     // Cache DOM elements
     cacheElements();
     
@@ -155,6 +169,7 @@ async function setup() {
     
     // 确保游戏开始时处于intro模式的第一页
     gameState.introPageIndex = 0;
+    navigationState.introVisited = true; // 标记已访问intro
     
     console.log(`Before second updateUI, introPageIndex: ${gameState.introPageIndex}`);
     
@@ -239,7 +254,7 @@ function handleKeyPress(event) {
   
   console.log(`Key pressed: ${key}, introPageIndex: ${gameState.introPageIndex}`);
   
-  // If in intro mode, only allow navigation and M
+  // If in intro mode
   if (gameState.introPageIndex !== null) {
     if (key === 'b') { navigateBack(); return; }
     if (key === 'f') { navigateForward(); return; }
@@ -248,6 +263,8 @@ function handleKeyPress(event) {
       if (gameState.introPageIndex === 2) {
         console.log("Starting game from intro page 3");
         gameState.introPageIndex = null;
+        // 标记intro已访问
+        navigationState.introVisited = true;
         updateUI();
         // 直接开始生成新谜题，无需再次按M
         createMysterySlide();
@@ -313,6 +330,8 @@ async function createMysterySlide() {
     
     // 确保introPageIndex为null，这样不会回到介绍页面
     gameState.introPageIndex = null;
+    // 标记游戏已开始
+    navigationState.gameStarted = true;
     console.log(`After explicit set, introPageIndex: ${gameState.introPageIndex}`);
     
     // 开始播放背景音乐
@@ -820,8 +839,8 @@ function updateUI() {
     elements.cardContent.innerHTML = '';
     // Hide reveal panel
     elements.revealPanel.classList.remove('active');
-    // Set indicator
-    elements.slideIndicator.textContent = `INTRO ${idx+1}/3`;
+    // Set indicator - 添加导航信息
+    elements.slideIndicator.textContent = `INTRO ${idx+1}/3${navigationState.gameStarted ? " | INVESTIGATION ONGOING" : ""}`;
     // Hide insight badge
     elements.insightBadge.classList.remove('visible');
     // Journal (right): show intro text only
@@ -873,25 +892,17 @@ function updateUI() {
         elements.cardContent.innerHTML = `<p>${content.replace(/\n/g, '<br>')}</p>`;
       }
     }
-    // 更新图片显示
+    // 更新图片显示 - 使用新的统一格式
     if (gameState.images[gameState.currentIndex]) {
       elements.cardImage.style.display = 'block';
-      const img = elements.cardImage.querySelector('img');
-      if (img) {
-        img.src = gameState.images[gameState.currentIndex];
-      } else {
-        const newImg = new Image();
-        newImg.src = gameState.images[gameState.currentIndex];
-        newImg.alt = "Generated crime scene image";
-        elements.cardImage.innerHTML = '';
-        elements.cardImage.appendChild(newImg);
-      }
+      // 使用updateImageDisplay函数来统一图片显示格式
+      updateImageDisplay(gameState.currentIndex);
     } else {
       elements.cardImage.style.display = 'none';
     }
     // Update card indicator
     elements.slideIndicator.textContent = 
-      `${gameState.slides[gameState.currentIndex]} ${gameState.currentIndex + 1}/${gameState.slides.length}`;
+      `${gameState.slides[gameState.currentIndex]} ${gameState.currentIndex + 1}/${gameState.slides.length}${navigationState.introVisited ? " | INTRO AVAILABLE" : ""}`;
     // Add updated indicator if needed
     if (gameState.modifiedSlides.has(gameState.currentIndex)) {
       elements.slideIndicator.textContent += " ★";
@@ -900,7 +911,7 @@ function updateUI() {
     // No cards yet: do not show any welcome/standby page
     elements.cardContent.className = 'card-content';
     elements.cardContent.innerHTML = '';
-    elements.slideIndicator.textContent = '';
+    elements.slideIndicator.textContent = navigationState.introVisited ? 'INTRO AVAILABLE' : '';
     elements.revealPanel.classList.remove('active');
     elements.cardImage.style.display = 'none';
     // Journal (right): clear
@@ -940,6 +951,28 @@ function updateInstructionBar() {
   // Skip if loading
   if (gameState.isLoading) return;
   
+  // 如果在intro模式
+  if (gameState.introPageIndex !== null) {
+    // 如果在最后一页且游戏已开始，提示可以前进回到游戏
+    if (gameState.introPageIndex === navigationState.introPages - 1 && navigationState.gameStarted) {
+      elements.instructionBar.textContent = "Press F to return to your investigation. Press M to start a new mystery.";
+      return;
+    }
+    
+    // 普通intro页面
+    elements.instructionBar.textContent = "Use F/B to navigate introduction pages. Press M to skip to the last page.";
+    return;
+  }
+  
+  // 如果在游戏第一页且之前访问过intro
+  if (gameState.currentIndex === 0 && navigationState.introVisited) {
+    elements.instructionBar.textContent = "Press B to return to instructions. " + 
+      (gameState.phase === "initial" ? "Press M to start a new mystery." : 
+       "Add cards (E/C/L/A) to continue your investigation.");
+    return;
+  }
+  
+  // 正常游戏中的指示
   switch(gameState.phase) {
     case "initial":
       elements.instructionBar.textContent = "Press M key to start a new mystery investigation.";
@@ -1089,6 +1122,9 @@ function resetGameState() {
   // Keep previous mysteries to ensure uniqueness
   const prevMysteries = [...gameState.previousMysteries];
   
+  // 保存当前的导航状态
+  const currentNavigationState = { ...navigationState };
+  
   // Reset state
   gameState = {
     slides: [],
@@ -1117,9 +1153,12 @@ function resetGameState() {
     pendingAssociationIndex: undefined,
     // 重置音乐状态
     isMusicPlaying: false,
-    // ===== MODIFIED: introPageIndex should be null for normal game =====
-    introPageIndex: null          // Set to null to ensure we're not in intro mode
+    // ===== MODIFIED: intro page index =====
+    introPageIndex: null       // null for normal game, 0/1/2 for intro pages
   };
+  
+  // 恢复导航状态
+  navigationState = currentNavigationState;
   
   // 停止背景音乐
   stopBackgroundMusic();
@@ -1165,6 +1204,63 @@ async function summarizeForDalle(longPrompt) {
   return response.choices[0].message.content.trim();
 }
 
+// ======= 20250511 - Updated image display function with debugging
+function updateImageDisplay(index) {
+  console.log(`Updating image display for index: ${index}`);
+  console.log(`Images array:`, gameState.images);
+  console.log(`Image at index:`, gameState.images[index]);
+  
+  const imageContainer = document.getElementById('card-image');
+  console.log(`Image container:`, imageContainer);
+  
+  if (gameState.images[index]) {
+    console.log("Preparing to display image...");
+    
+    // Clear container first
+    imageContainer.innerHTML = '';
+    
+    // 使用与introMode类似的包装容器来确保图片居中显示
+    const wrapper = document.createElement('div');
+    wrapper.className = 'image-wrapper';
+    wrapper.style.display = 'flex';
+    wrapper.style.justifyContent = 'center';
+    wrapper.style.alignItems = 'center';
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    
+    // Create image element
+    const img = new Image();
+    img.onload = () => {
+      console.log("Image loaded successfully");
+    };
+    img.onerror = () => {
+      console.error("Image failed to load");
+    };
+    
+    img.src = gameState.images[index];
+    img.alt = "Generated crime scene image";
+    img.style.maxWidth = '90%';
+    img.style.maxHeight = '80vh';
+    img.style.objectFit = 'contain';
+    img.style.borderRadius = '6px';
+    img.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.5)';
+    img.style.margin = '0 auto';
+    img.style.display = 'block';
+    
+    // Add to wrapper then to container
+    wrapper.appendChild(img);
+    imageContainer.appendChild(wrapper);
+    imageContainer.style.display = 'block';
+    
+    console.log("Image element added to DOM");
+  } else {
+    console.log("No image found, hiding container");
+    imageContainer.style.display = 'none';
+  }
+  
+  console.log(`Image display update completed`);
+}
+
 // ======2025511update: generateImage先AI精炼prompt再喂给DALL·E
 async function generateImage(prompt, index) {
   try {
@@ -1176,7 +1272,7 @@ async function generateImage(prompt, index) {
     let imagePrompt;
     if (gameState.slides && gameState.slides[index] === "Character") {
       // Character卡片，生成肖像风格prompt
-      imagePrompt = `A portrait of ${safeShortPrompt}, vintage 1940s film noir style, black and white, dramatic lighting, high contrast, grainy texture.`;
+      imagePrompt = `A portrait of ${safeShortPrompt}, vintage 1940s film noir style, black and white, criminal scene, dramatic lighting, high contrast, grainy texture, cinematic composition`;
     } else {
       // 其他卡片类型，保持原有风格
       imagePrompt = enhancePromptForDalle(safeShortPrompt);
@@ -1202,8 +1298,10 @@ async function generateImage(prompt, index) {
     // Store image URL
     gameState.images[index] = imageUrl;
     
-    // Update UI to display image
-    updateImageDisplay(index);
+    // 直接更新当前显示的图片
+    if (gameState.currentIndex === index) {
+      updateImageDisplay(index);
+    }
     
   } catch (error) {
     console.error("Generate image error:", error);
@@ -1235,50 +1333,22 @@ function filterSensitiveWords(text) {
   return filtered;
 }
 
-// ======= 20250511 - Updated image display function with debugging
-function updateImageDisplay(index) {
-  console.log(`Updating image display for index: ${index}`);
-  console.log(`Images array:`, gameState.images);
-  console.log(`Image at index:`, gameState.images[index]);
-  
-  const imageContainer = document.getElementById('card-image');
-  console.log(`Image container:`, imageContainer);
-  
-  if (gameState.images[index]) {
-    console.log("Preparing to display image...");
-    
-    // Clear container first
-    imageContainer.innerHTML = '';
-    
-    // Create image element
-    const img = new Image();
-    img.onload = () => {
-      console.log("Image loaded successfully");
-    };
-    img.onerror = () => {
-      console.error("Image failed to load");
-    };
-    
-    img.src = gameState.images[index];
-    img.alt = "Generated crime scene image";
-    
-    // Add to container
-    imageContainer.appendChild(img);
-    imageContainer.style.display = 'block';
-    
-    console.log("Image element added to DOM");
-  } else {
-    console.log("No image found, hiding container");
-    imageContainer.style.display = 'none';
-  }
-  
-  console.log(`Image display update completed`);
-}
-
 // ======2025511update: navigateBack/navigateForward只在翻到pendingAssociationIndex时才更新内容和熄灭红灯
 async function navigateBack() {
   if (gameState.isLoading) return;
-  // If in intro mode
+  
+  // 如果在游戏中且当前是第一页，则回到intro
+  if (gameState.introPageIndex === null && gameState.currentIndex === 0 && navigationState.introVisited) {
+    gameState.introPageIndex = navigationState.introPages - 1; // 回到intro的最后一页
+    updateUI();
+    elements.cardContent.classList.add('transition');
+    setTimeout(() => {
+      elements.cardContent.classList.remove('transition');
+    }, 400);
+    return;
+  }
+  
+  // 如果在intro中
   if (gameState.introPageIndex !== null) {
     if (gameState.introPageIndex > 0) {
       gameState.introPageIndex--;
@@ -1286,6 +1356,8 @@ async function navigateBack() {
     }
     return;
   }
+  
+  // 正常游戏内导航
   if (gameState.slides.length === 0) return;
   if (gameState.currentIndex > 0) {
     gameState.currentIndex--;
@@ -1311,17 +1383,32 @@ async function navigateBack() {
     }, 400);
   }
 }
+
+// 修改navigateForward函数，支持从intro进入游戏
 async function navigateForward() {
   if (gameState.isLoading) return;
-  // If in intro mode
+  
+  // 如果在intro的最后一页且游戏已开始，则跳回游戏
+  if (gameState.introPageIndex !== null && gameState.introPageIndex === navigationState.introPages - 1 && navigationState.gameStarted) {
+    gameState.introPageIndex = null;
+    updateUI();
+    elements.cardContent.classList.add('transition');
+    setTimeout(() => {
+      elements.cardContent.classList.remove('transition');
+    }, 400);
+    return;
+  }
+  
+  // 如果在intro中
   if (gameState.introPageIndex !== null) {
-    if (gameState.introPageIndex < 2) {
+    if (gameState.introPageIndex < navigationState.introPages - 1) {
       gameState.introPageIndex++;
       updateUI();
     }
-    // Do NOT auto-advance to game after last intro page
     return;
   }
+  
+  // 正常游戏内导航
   if (gameState.slides.length === 0) return;
   if (gameState.currentIndex < gameState.slides.length - 1) {
     gameState.currentIndex++;
@@ -1347,6 +1434,8 @@ async function navigateForward() {
     }, 400);
   }
 }
+
+// 恢复navigateReturn函数
 async function navigateReturn() {
   if (gameState.isLoading) return;
   if (gameState.insightLevel <= 0) {
@@ -1373,6 +1462,7 @@ async function navigateReturn() {
     setLoading(false);
   }
 }
+
 // ======2025511update: enterInsightChain时记录pendingAssociationIndex并亮红灯
 function enterInsightChain(targetIndex) {
   elements.instructionBar.textContent =
