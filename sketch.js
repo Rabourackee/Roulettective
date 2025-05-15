@@ -55,14 +55,17 @@ let gameState = {
   // 添加音乐状态
   isMusicPlaying: false,     // 音乐播放状态
   // ===== MODIFIED: intro page index =====
-  introPageIndex: null       // null for normal game, 0/1/2 for intro pages
+  introPageIndex: null,      // null for normal game, 0/1/2 for intro pages
+  // ===== NEW: standby page flag =====
+  isStandbyPage: false       // Flag to indicate if we're on the standby page
 };
 
 // 添加一个特殊导航状态管理
 let navigationState = {
-  introPages: 3,  // intro有3页
+  introPages: 3,    // intro有3页
   introVisited: false,  // 是否已访问过intro
-  gameStarted: false    // 游戏是否已开始
+  gameStarted: false,   // 游戏是否已开始
+  standbyActive: true   // 是否已激活待机页面
 };
 
 // Initialize OpenAI
@@ -80,6 +83,26 @@ function playBackgroundMusic() {
       console.error("Error playing background music:", error);
     });
     gameState.isMusicPlaying = true;
+  }
+}
+
+// 播放待机页面音乐
+function playStandbyMusic() {
+  const standbyBgm = document.getElementById('standby-bgm');
+  if (standbyBgm) {
+    standbyBgm.volume = CONFIG.musicVolume;
+    standbyBgm.play().catch(error => {
+      console.error("Error playing standby music:", error);
+    });
+  }
+}
+
+// 停止待机页面音乐
+function stopStandbyMusic() {
+  const standbyBgm = document.getElementById('standby-bgm');
+  if (standbyBgm) {
+    standbyBgm.pause();
+    standbyBgm.currentTime = 0;
   }
 }
 
@@ -127,7 +150,8 @@ async function setup() {
     navigationState = {
       introPages: 3,
       introVisited: false,
-      gameStarted: false
+      gameStarted: false,
+      standbyActive: true
     };
     
     // Cache DOM elements
@@ -160,22 +184,12 @@ async function setup() {
     // Attach event listeners
     attachEventListeners();
     
-    console.log(`Before initial updateUI, introPageIndex: ${gameState.introPageIndex}`);
+    // 直接进入待机页面
+    gameState.isStandbyPage = true;
+    playStandbyMusic();
     
     // Set up UI
     updateUI();
-    
-    console.log(`After initial updateUI, setting introPageIndex to 0`);
-    
-    // 确保游戏开始时处于intro模式的第一页
-    gameState.introPageIndex = 0;
-    navigationState.introVisited = true; // 标记已访问intro
-    
-    console.log(`Before second updateUI, introPageIndex: ${gameState.introPageIndex}`);
-    
-    updateUI();
-    
-    console.log(`After second updateUI, introPageIndex: ${gameState.introPageIndex}`);
     
     // Log successful initialization
     console.log("Layered Reasoning Mystery Game initialized successfully");
@@ -209,6 +223,7 @@ function cacheElements() {
   elements.locationBtn = document.getElementById('btn-location');
   elements.actionBtn = document.getElementById('btn-action');
   elements.revealBtn = document.getElementById('btn-reveal');
+  elements.restartBtn = document.getElementById('btn-restart');
   // Navigation buttons
   elements.backBtn = document.getElementById('btn-back');
   elements.forwardBtn = document.getElementById('btn-forward');
@@ -229,6 +244,7 @@ function attachEventListeners() {
   if (elements.locationBtn) elements.locationBtn.addEventListener('click', () => createSlide('Location'));
   if (elements.actionBtn) elements.actionBtn.addEventListener('click', () => createSlide('Action'));
   if (elements.revealBtn) elements.revealBtn.addEventListener('click', () => createSlide('Reveal'));
+  if (elements.restartBtn) elements.restartBtn.addEventListener('click', () => restartGame());
   
   // Navigation buttons
   if (elements.returnBtn) elements.returnBtn.addEventListener('click', navigateReturn);
@@ -252,29 +268,54 @@ function handleKeyPress(event) {
   if (gameState.isLoading) return;
   const key = event.key.toLowerCase();
   
-  console.log(`Key pressed: ${key}, introPageIndex: ${gameState.introPageIndex}`);
+  console.log(`Key pressed: ${key}, introPageIndex: ${gameState.introPageIndex}, isStandbyPage: ${gameState.isStandbyPage}`);
+  
+  // 如果在待机页面
+  if (gameState.isStandbyPage) {
+    // 在待机页面按F键直接开始新游戏
+    if (key === 'f') {
+      gameState.isStandbyPage = false;
+      stopStandbyMusic();
+      gameState.introPageIndex = null;
+      updateUI();
+      createMysterySlide();
+      return;
+    }
+    // 在待机页面按B键可以查看intro
+    if (key === 'b') {
+      gameState.isStandbyPage = false;
+      stopStandbyMusic();
+      gameState.introPageIndex = 0; // 跳转到intro的第一页
+      updateUI();
+      return;
+    }
+    return;
+  }
   
   // If in intro mode
   if (gameState.introPageIndex !== null) {
-    if (key === 'b') { navigateBack(); return; }
-    if (key === 'f') { navigateForward(); return; }
-    if (key === 'm') {
-      // 在第三页（也就是introPageIndex=2）按M时直接开始游戏
-      if (gameState.introPageIndex === 2) {
-        console.log("Starting game from intro page 3");
-        gameState.introPageIndex = null;
-        // 标记intro已访问
-        navigationState.introVisited = true;
-        updateUI();
-        // 直接开始生成新谜题，无需再次按M
-        createMysterySlide();
-      } else {
-        // 如果不是最后一页，直接跳到最后一页
-        console.log(`Jumping to intro page 3 from page ${gameState.introPageIndex + 1}`);
-        gameState.introPageIndex = 2;
+    if (key === 'b') { 
+      // 在intro中，按B键是进入下一页，而不是返回上一页
+      if (gameState.introPageIndex < 2) {
+        gameState.introPageIndex++;
         updateUI();
       }
-      return;
+      return; 
+    }
+    if (key === 'f') { 
+      // 在intro中，按F键是返回上一页，如果已经是第一页，则返回待机页面
+      if (gameState.introPageIndex > 0) {
+        gameState.introPageIndex--;
+        updateUI();
+      } else {
+        // 如果是第一页，返回待机页面
+        gameState.isStandbyPage = true;
+        playStandbyMusic();
+        gameState.introPageIndex = null;
+        navigationState.standbyActive = true;
+        updateUI();
+      }
+      return; 
     }
     return;
   }
@@ -282,20 +323,19 @@ function handleKeyPress(event) {
   // Handle based on key
   switch(key) {
     // Card types
-    case 'm': 
-      console.log("Creating mystery slide from normal mode");
-      createMysterySlide(); 
-      break;
     case 'e': createSlide('Evidence'); break;
     case 'c': createSlide('Character'); break;
     case 'l': createSlide('Location'); break;
     case 'a': createSlide('Action'); break;
-    case 'r': createSlide('Reveal'); break;
+    case 'v': createSlide('Reveal'); break;
     
     // Navigation
     case 'b': navigateBack(); break;
     case 'f': navigateForward(); break;
     case 't': navigateReturn(); break;
+    
+    // Restart game
+    case 'r': restartGame(); break;
     
     // Theory selection
     case '1': case '2': case '3': case '4': case '5':
@@ -311,7 +351,13 @@ async function createMysterySlide() {
   // Check if already loading
   if (gameState.isLoading) return;
   
-  console.log(`createMysterySlide start, introPageIndex: ${gameState.introPageIndex}`);
+  console.log(`createMysterySlide start, introPageIndex: ${gameState.introPageIndex}, isStandbyPage: ${gameState.isStandbyPage}`);
+  
+  // 如果在待机页面，关闭待机页面
+  if (gameState.isStandbyPage) {
+    gameState.isStandbyPage = false;
+    stopStandbyMusic();
+  }
   
   // If already in a game, confirm reset
   if (gameState.slides.length > 0) {
@@ -810,9 +856,39 @@ function showError(message) {
 
 // Update UI based on current game state
 function updateUI() {
-  console.log(`updateUI called, introPageIndex: ${gameState.introPageIndex}`);
+  console.log(`updateUI called, introPageIndex: ${gameState.introPageIndex}, isStandbyPage: ${gameState.isStandbyPage}`);
   
-  // ===== NEW: Show intro pages if in intro mode =====
+  // ===== NEW: Show standby page if active =====
+  if (gameState.isStandbyPage) {
+    // 为case-card添加standby模式类
+    elements.caseCard.classList.add('standby-mode-active');
+    elements.caseCard.classList.remove('intro-mode-active');
+    
+    // 设置全屏图片，隐藏其他UI元素
+    elements.cardImage.style.display = 'block';
+    elements.cardImage.innerHTML = `<div class="standby-container fullscreen"><img src='Standby.jpg' alt='Standby Screen'></div>`;
+    
+    // 隐藏所有UI元素
+    elements.cardContent.className = 'card-content standby-mode';
+    elements.cardContent.innerHTML = '';
+    elements.cardHeader = document.querySelector('.card-header');
+    if (elements.cardHeader) elements.cardHeader.style.display = 'none';
+    elements.revealPanel.classList.remove('active');
+    elements.slideIndicator.textContent = '';
+    elements.insightBadge.classList.remove('visible');
+    elements.slideHistory.innerHTML = '';
+    elements.instructionBar.textContent = '';
+    
+    return;
+  } else {
+    // 移除standby模式类
+    elements.caseCard.classList.remove('standby-mode-active');
+    // 恢复header显示
+    elements.cardHeader = document.querySelector('.card-header');
+    if (elements.cardHeader) elements.cardHeader.style.display = 'flex';
+  }
+  
+  // ===== EXISTING: Show intro pages if in intro mode =====
   if (gameState.introPageIndex !== null) {
     const introData = [
       {
@@ -833,9 +909,7 @@ function updateUI() {
         html: `<div class="case-intro" style="text-align:left; padding:0 10%;">
           <h2 style="margin-bottom:1.5em; text-align:center;">Detective's Guide</h2>
           
-          <p>Insert <b>[Mystery]</b> to unveil the case.</p>
-          
-          <p style="margin-top:1em;">During your investigation:<br>
+          <p>During your investigation:<br>
           • Use <b>[Evidence]</b> to uncover vital clues.<br>
           • Use <b>[Character]</b> to interrogate key figures.<br>
           • Use <b>[Location]</b> to inspect relevant scenes.<br>
@@ -845,9 +919,11 @@ function updateUI() {
           • Insert <b>[Reveal]</b> to open the trial.<br>
           • Choose your <b>[Choice]</b> to expose the false testimony.</p>
           
+          <p style="margin-top:1em;">Press <b>[R]</b> anytime to restart and return to standby screen.</p>
+          
           <p style="margin-top:2em; font-style:italic;">Trust no one—see through every deception.</p>
           
-          <p style="margin-top:1em;">Press <b>[M]</b> to skip to instructions and begin.</p>
+          <p style="margin-top:1em;">Press <b>[M]</b> to skip to standby screen.</p>
         </div>`
       },
       {
@@ -863,7 +939,7 @@ function updateUI() {
           
           <p style="margin-top:2em;">Work alongside <i>Roulettective</i>—see what others cannot.</p>
           
-          <p style="margin-top:2em;"><b>Press M to immediately begin your investigation</b></p>
+          <p style="margin-top:2em;"><b>Press F to continue to standby screen</b></p>
         </div>`
       }
     ];
@@ -966,20 +1042,16 @@ function updateUI() {
 
 // Update button labels to English
 function updateButtonLabels() {
-  if (elements.mysteryBtn) elements.mysteryBtn.innerHTML = 'M<span>Mystery</span>';
   if (elements.evidenceBtn) elements.evidenceBtn.innerHTML = 'E<span>Evidence</span>';
   if (elements.characterBtn) elements.characterBtn.innerHTML = 'C<span>Character</span>';
   if (elements.locationBtn) elements.locationBtn.innerHTML = 'L<span>Location</span>';
   if (elements.actionBtn) elements.actionBtn.innerHTML = 'A<span>Action</span>';
-  if (elements.revealBtn) elements.revealBtn.innerHTML = 'R<span>Reveal</span>';
+  if (elements.revealBtn) elements.revealBtn.innerHTML = 'V<span>Reveal</span>';
+  if (elements.restartBtn) elements.restartBtn.innerHTML = 'R<span>Restart</span>';
   
   if (elements.backBtn) elements.backBtn.innerHTML = '<span>⯇</span>Back (B)';
   if (elements.forwardBtn) elements.forwardBtn.innerHTML = 'Forward (F)<span>⯈</span>';
   if (elements.returnBtn) elements.returnBtn.innerHTML = '<span>⟲</span>Return (T)';
-  
-  // Update depth indicator
-  // const depthLabel = document.querySelector('.depth-label');
-  // if (depthLabel) depthLabel.textContent = 'Insight Depth:';
   
   // Update insight badge
   if (elements.insightBadge) elements.insightBadge.textContent = 'New Insight';
@@ -990,53 +1062,61 @@ function updateInstructionBar() {
   // Skip if loading
   if (gameState.isLoading) return;
   
-  // 如果在intro模式
-  if (gameState.introPageIndex !== null) {
-    // 如果在最后一页且游戏已开始，提示可以前进回到游戏
-    if (gameState.introPageIndex === navigationState.introPages - 1 && navigationState.gameStarted) {
-      elements.instructionBar.textContent = "Press F to return to your investigation. Press M to start a new mystery.";
-      return;
-    }
-    
-    // 普通intro页面
-    elements.instructionBar.textContent = "Use F/B to navigate introduction pages. Press M to skip to the last page.";
+  // 如果在待机页面
+  if (gameState.isStandbyPage) {
+    elements.instructionBar.textContent = "Press F to start a new mystery or B to view introduction";
     return;
   }
   
-  // 如果在游戏第一页且之前访问过intro
-  if (gameState.currentIndex === 0 && navigationState.introVisited) {
-    elements.instructionBar.textContent = "Press B to return to instructions. " + 
-      (gameState.phase === "initial" ? "Press M to start a new mystery." : 
-       "Add cards (E/C/L/A) to continue your investigation.");
+  // 如果在intro模式
+  if (gameState.introPageIndex !== null) {
+    // 修改intro页面的指示
+    if (gameState.introPageIndex === 0) {
+      elements.instructionBar.textContent = "Press B to see next introduction page or F to return to standby screen.";
+    } else if (gameState.introPageIndex === 2) {
+      elements.instructionBar.textContent = "Press F to see previous introduction page.";
+    } else {
+      elements.instructionBar.textContent = "Press B to see next introduction page or F to see previous page.";
+    }
     return;
   }
+  
+  // 如果在游戏中，添加Restart提示
+  let baseInstructions = "";
   
   // 正常游戏中的指示
   switch(gameState.phase) {
     case "initial":
-      elements.instructionBar.textContent = "Press M key to start a new mystery investigation.";
+      baseInstructions = "Press F to start a new mystery investigation.";
       break;
       
     case "investigating":
       if (gameState.modifiedSlides.has(gameState.currentIndex)) {
-        elements.instructionBar.textContent = "This content has been updated with new insights.";
+        baseInstructions = "This content has been updated with new insights.";
       } else if (gameState.slides.length < CONFIG.minSlidesBeforeReveal) {
-        elements.instructionBar.textContent = 
+        baseInstructions = 
           `Add more cards (E/C/L/A) to investigate. Need ${CONFIG.minSlidesBeforeReveal - gameState.slides.length} more cards before reveal.`;
       } else {
-        elements.instructionBar.textContent = 
-          "Add cards to investigate (E/C/L/A). Navigate with F/B. Press R for reveal when ready.";
+        baseInstructions = 
+          "Add cards to investigate (E/C/L/A). Navigate with F/B. Press V for reveal when ready.";
       }
       break;
       
     case "reveal":
-      elements.instructionBar.textContent = "Which theory is false? Select a theory number (1-5).";
+      baseInstructions = "Which theory is false? Select a theory number (1-5).";
       break;
       
     case "conclusion":
-      elements.instructionBar.textContent = "Mystery solved. Press M to start a new investigation.";
+      baseInstructions = "Mystery solved. Press R to restart and return to standby screen.";
       break;
   }
+  
+  // 添加Restart提示，除了在结论阶段
+  if (gameState.phase !== "conclusion") {
+    baseInstructions += " Press R to restart and return to standby screen.";
+  }
+  
+  elements.instructionBar.textContent = baseInstructions;
 }
 
 // Update phase indicator
@@ -1193,14 +1273,16 @@ function resetGameState() {
     // 重置音乐状态
     isMusicPlaying: false,
     // ===== MODIFIED: intro page index =====
-    introPageIndex: null       // null for normal game, 0/1/2 for intro pages
+    introPageIndex: null,       // null for normal game, 0/1/2 for intro pages
+    // ===== NEW: standby page flag =====
+    isStandbyPage: false        // Flag to indicate if we're on the standby page
   };
   
   // 恢复导航状态
   navigationState = currentNavigationState;
   
-  // 停止背景音乐
-  stopBackgroundMusic();
+  // 在开始新游戏时确保关闭待机页面音乐
+  stopStandbyMusic();
   
   // ======= 20250511 - Clear image container on reset
   // Reset UI elements
@@ -1376,23 +1458,15 @@ function filterSensitiveWords(text) {
 async function navigateBack() {
   if (gameState.isLoading) return;
   
-  // 如果在游戏中且当前是第一页，则回到intro
-  if (gameState.introPageIndex === null && gameState.currentIndex === 0 && navigationState.introVisited) {
-    gameState.introPageIndex = navigationState.introPages - 1; // 回到intro的最后一页
+  // 如果在游戏中且当前是第一页，则回到待机页面
+  if (!gameState.isStandbyPage && gameState.introPageIndex === null && gameState.currentIndex === 0 && navigationState.standbyActive) {
+    gameState.isStandbyPage = true;
+    playStandbyMusic();
     updateUI();
     elements.cardContent.classList.add('transition');
     setTimeout(() => {
       elements.cardContent.classList.remove('transition');
     }, 400);
-    return;
-  }
-  
-  // 如果在intro中
-  if (gameState.introPageIndex !== null) {
-    if (gameState.introPageIndex > 0) {
-      gameState.introPageIndex--;
-      updateUI();
-    }
     return;
   }
   
@@ -1423,27 +1497,17 @@ async function navigateBack() {
   }
 }
 
-// 修改navigateForward函数，支持从intro进入游戏
+// 修改navigateForward函数，从待机页面直接开始新游戏
 async function navigateForward() {
   if (gameState.isLoading) return;
   
-  // 如果在intro的最后一页且游戏已开始，则跳回游戏
-  if (gameState.introPageIndex !== null && gameState.introPageIndex === navigationState.introPages - 1 && navigationState.gameStarted) {
+  // 如果在待机页面，直接开始新游戏
+  if (gameState.isStandbyPage) {
+    gameState.isStandbyPage = false;
+    stopStandbyMusic();
     gameState.introPageIndex = null;
     updateUI();
-    elements.cardContent.classList.add('transition');
-    setTimeout(() => {
-      elements.cardContent.classList.remove('transition');
-    }, 400);
-    return;
-  }
-  
-  // 如果在intro中
-  if (gameState.introPageIndex !== null) {
-    if (gameState.introPageIndex < navigationState.introPages - 1) {
-      gameState.introPageIndex++;
-      updateUI();
-    }
+    createMysterySlide();
     return;
   }
   
@@ -1508,4 +1572,28 @@ function enterInsightChain(targetIndex) {
     "Strong connection discovered! Use Forward (F) or Back (B) to find the updated card.";
   gameState.pendingAssociationIndex = targetIndex;
   if (elements.insightLight) elements.insightLight.classList.add('active');
+}
+
+// 添加重启游戏功能
+function restartGame() {
+  if (gameState.isLoading) return;
+  
+  // 如果已经在待机页面，不需要任何操作
+  if (gameState.isStandbyPage) return;
+  
+  // 停止背景音乐
+  stopBackgroundMusic();
+  
+  // 重置游戏状态
+  resetGameState();
+  
+  // 进入待机页面
+  gameState.isStandbyPage = true;
+  navigationState.standbyActive = true;
+  
+  // 播放待机页面音乐
+  playStandbyMusic();
+  
+  // 更新UI
+  updateUI();
 }

@@ -11,6 +11,9 @@
   <audio id="bgm" loop>
     <source src="assets/mystery_bgm.mp3" type="audio/mpeg">
   </audio>
+  <audio id="standby-bgm" loop>
+    <source src="Paul Whiteman and His Orchestra - Whispering (1920).mp3" type="audio/mpeg">
+  </audio>
   <div class="app-container">
     <!-- Header is hidden in CSS -->
     <header>
@@ -39,7 +42,7 @@
           <div class="card-content" id="card-content">
             <div class="case-intro">
               <p>CRIME ARCHIVE INVESTIGATION SYSTEM</p>
-              <p>PRESS <kbd>M</kbd> TO INITIATE NEW CASE</p>
+              <p>PRESS <kbd>F</kbd> TO START NEW CASE</p>
               <p>EACH CASE CONTAINS MULTIPLE LAYERS OF EVIDENCE</p>
             </div>
           </div>
@@ -71,18 +74,18 @@
       <!-- Controls panel is hidden in CSS but kept for functionality -->
       <div class="controls-panel">
         <div class="instruction-bar" id="instruction-bar">
-          PRESS <kbd>M</kbd> TO INITIATE NEW CASE
+          PRESS <kbd>F</kbd> TO START NEW CASE
         </div>
         
         <div class="control-section">
           <h3>INVESTIGATION CONTROLS</h3>
           <div class="control-buttons">
-            <button id="btn-mystery" class="control-btn mystery-btn">M<span>MYSTERY</span></button>
-            <button id="btn-evidence" class="control-btn evidence-btn">E<span>EVIDENCE</span></button>
-            <button id="btn-character" class="control-btn character-btn">C<span>CHARACTER</span></button>
-            <button id="btn-location" class="control-btn location-btn">L<span>LOCATION</span></button>
-            <button id="btn-action" class="control-btn action-btn">A<span>ACTION</span></button>
-            <button id="btn-reveal" class="control-btn reveal-btn">R<span>REVEAL</span></button>
+            <button id="btn-evidence" class="control-btn evidence-btn">E<span>Evidence</span></button>
+            <button id="btn-character" class="control-btn character-btn">C<span>Character</span></button>
+            <button id="btn-location" class="control-btn location-btn">L<span>Location</span></button>
+            <button id="btn-action" class="control-btn action-btn">A<span>Action</span></button>
+            <button id="btn-reveal" class="control-btn reveal-btn">V<span>Reveal</span></button>
+            <button id="btn-restart" class="control-btn restart-btn">R<span>Restart</span></button>
           </div>
         </div>
         

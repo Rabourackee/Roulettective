@@ -600,3 +600,71 @@ footer {
   display: block;
   object-fit: contain;
 }
+
+/* Add standby mode styles */
+.standby-mode-active {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 9999;
+  background-color: #000;
+}
+
+.standby-mode-active .card-content,
+.standby-mode-active .card-header,
+.standby-mode-active .reveal-panel {
+  display: none;
+}
+
+.standby-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+.standby-container.fullscreen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+.standby-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  max-height: 100vh;
+  max-width: 100vw;
+}
+
+.card-content.standby-mode {
+  display: none;
+}
+
+.standby-text {
+  font-family: 'Special Elite', cursive;
+  text-align: center;
+  margin-top: 2rem;
+  font-size: 1.2rem;
+  color: #ddd;
+}
+
+/* Add restart button styles */
+.restart-btn {
+  background-color: var(--primary-color);
+  color: var(--light-text);
+  transition: all 0.3s ease;
+}
+
+.restart-btn:hover {
+  background-color: #8b0000;
+  transform: translateY(-2px);
+}
