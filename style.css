@@ -95,6 +95,13 @@ main {
   border: 2px solid var(--border-color);
 }
 
+/* intro模式下的case-card样式 */
+.case-card.intro-mode-active {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background-color: transparent;
+}
+
 .card-header {
   background-color: var(--bg-light);
   padding: var(--spacing-md);
@@ -180,6 +187,15 @@ main {
   align-items: center;
   overflow: hidden;
   min-height: 300px;
+}
+
+/* 为intro模式添加特殊样式 */
+.intro-mode ~ .card-image {
+  flex: 1;
+  height: calc(100% - 60px); /* 减去header高度 */
+  min-height: 500px;
+  background-color: transparent;
+  padding: var(--spacing-xl);
 }
 
 .card-image img {
@@ -554,4 +570,27 @@ kbd {
 
 footer {
   display: none; /* Hide the footer as we've moved the journal to the right side */
+} /* Hide the footer as we've moved the journal to the right side */
+
+/* 添加intro模式下的图片样式 */
+.intro-mode-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+}
+
+.intro-mode-container img {
+  max-width: 90%;
+  max-height: 80vh;
+  border-radius: var(--border-radius-md);
+  border: 2px solid var(--border-color);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+  margin: 0 auto;
+  display: block;
+  object-fit: contain;
 }

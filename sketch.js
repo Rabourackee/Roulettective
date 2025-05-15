@@ -54,8 +54,8 @@ let gameState = {
   pendingAssociationIndex: undefined,
   // 添加音乐状态
   isMusicPlaying: false,     // 音乐播放状态
-  // ===== NEW: intro page index =====
-  introPageIndex: 0          // 0, 1, 2 for intro pages, null for normal game
+  // ===== MODIFIED: intro page index =====
+  introPageIndex: null       // null for normal game, 0/1/2 for intro pages
 };
 
 // Initialize OpenAI
@@ -114,6 +114,8 @@ function checkAPIKey() {
 // Initialize game
 async function setup() {
   try {
+    console.log("Setup started");
+    
     // Cache DOM elements
     cacheElements();
     
@@ -144,8 +146,21 @@ async function setup() {
     // Attach event listeners
     attachEventListeners();
     
+    console.log(`Before initial updateUI, introPageIndex: ${gameState.introPageIndex}`);
+    
     // Set up UI
     updateUI();
+    
+    console.log(`After initial updateUI, setting introPageIndex to 0`);
+    
+    // 确保游戏开始时处于intro模式的第一页
+    gameState.introPageIndex = 0;
+    
+    console.log(`Before second updateUI, introPageIndex: ${gameState.introPageIndex}`);
+    
+    updateUI();
+    
+    console.log(`After second updateUI, introPageIndex: ${gameState.introPageIndex}`);
     
     // Log successful initialization
     console.log("Layered Reasoning Mystery Game initialized successfully");
@@ -221,21 +236,39 @@ function attachEventListeners() {
 function handleKeyPress(event) {
   if (gameState.isLoading) return;
   const key = event.key.toLowerCase();
+  
+  console.log(`Key pressed: ${key}, introPageIndex: ${gameState.introPageIndex}`);
+  
   // If in intro mode, only allow navigation and M
   if (gameState.introPageIndex !== null) {
     if (key === 'b') { navigateBack(); return; }
     if (key === 'f') { navigateForward(); return; }
-    if (key === 'm' && gameState.introPageIndex === 2) {
-      gameState.introPageIndex = null;
-      updateUI();
+    if (key === 'm') {
+      // 在第三页（也就是introPageIndex=2）按M时直接开始游戏
+      if (gameState.introPageIndex === 2) {
+        console.log("Starting game from intro page 3");
+        gameState.introPageIndex = null;
+        updateUI();
+        // 直接开始生成新谜题，无需再次按M
+        createMysterySlide();
+      } else {
+        // 如果不是最后一页，直接跳到最后一页
+        console.log(`Jumping to intro page 3 from page ${gameState.introPageIndex + 1}`);
+        gameState.introPageIndex = 2;
+        updateUI();
+      }
       return;
     }
     return;
   }
+  
   // Handle based on key
   switch(key) {
     // Card types
-    case 'm': createMysterySlide(); break;
+    case 'm': 
+      console.log("Creating mystery slide from normal mode");
+      createMysterySlide(); 
+      break;
     case 'e': createSlide('Evidence'); break;
     case 'c': createSlide('Character'); break;
     case 'l': createSlide('Location'); break;
@@ -261,6 +294,8 @@ async function createMysterySlide() {
   // Check if already loading
   if (gameState.isLoading) return;
   
+  console.log(`createMysterySlide start, introPageIndex: ${gameState.introPageIndex}`);
+  
   // If already in a game, confirm reset
   if (gameState.slides.length > 0) {
     if (!confirm("Starting a new mystery will reset your current progress. Continue?")) {
@@ -274,6 +309,11 @@ async function createMysterySlide() {
   try {
     // Reset game state
     resetGameState();
+    console.log(`After resetGameState, introPageIndex: ${gameState.introPageIndex}`);
+    
+    // 确保introPageIndex为null，这样不会回到介绍页面
+    gameState.introPageIndex = null;
+    console.log(`After explicit set, introPageIndex: ${gameState.introPageIndex}`);
     
     // 开始播放背景音乐
     playBackgroundMusic();
@@ -312,10 +352,14 @@ async function createMysterySlide() {
     // 生成谜题图片
     await generateImage(mysteryContent, gameState.currentIndex);
     
+    console.log(`Before updateUI, introPageIndex: ${gameState.introPageIndex}`);
+    
     // Update UI
     updateUI();
     updatePhaseIndicator();
     updateSlideHistory();
+    
+    console.log(`After updateUI, introPageIndex: ${gameState.introPageIndex}`);
     
     // Hide loading state
     setLoading(false);
@@ -747,26 +791,30 @@ function showError(message) {
 
 // Update UI based on current game state
 function updateUI() {
+  console.log(`updateUI called, introPageIndex: ${gameState.introPageIndex}`);
+  
   // ===== NEW: Show intro pages if in intro mode =====
   if (gameState.introPageIndex !== null) {
     const introData = [
       {
         img: 'intro1.png',
-        html: `<div class=\"case-intro\"><h2 style='margin-bottom:1.5em;'>You are a member of the <b>Mystery Analysis Division (MAD)</b> tasked with this investigation.</h2><p>Before you lies a dossier of official files and fragmented photographs.</p><p>Your mission is to uncover the truth concealed within these pages.</p><p style='margin-top:2em;'>Use <b>[Forward]</b> & <b>[Back]</b> to see different slides.</p></div>`
+        html: `<div class=\"case-intro\"><h2 style='margin-bottom:1.5em;'>You are a member of the <b>Mystery Analysis Division (MAD)</b> tasked with this investigation.</h2><p>Before you lies a dossier of official files and fragmented photographs.</p><p>Your mission is to uncover the truth concealed within these pages.</p><p style='margin-top:2em;'>Use <b>[Forward]</b> & <b>[Back]</b> to see different slides.<br>Or press <b>[M]</b> to skip directly to the last page.</p></div>`
       },
       {
         img: 'intro 2.png',
-        html: `<div class=\"case-intro\"><h2>Detective's Guide</h2><p>Insert <b>[Mystery]</b> to unveil the case.</p><p style='margin-top:1em;'>During your investigation:<br>Use <b>[Evidence]</b> to uncover vital clues.<br>Use <b>[Character]</b> to interrogate key figures.<br>Use <b>[Location]</b> to inspect relevant scenes.<br>Use <b>[Action]</b> to flex your detective prowess.</p><p style='margin-top:1em;'>When you've gathered enough leads:<br>Insert <b>[Reveal]</b> to open the trial.<br>Choose your <b>[Choice]</b> to expose the false testimony.</p><p style='margin-top:2em;font-style:italic;'>Trust no one—see through every deception.</p></div>`
+        html: `<div class=\"case-intro\"><h2>Detective's Guide</h2><p>Insert <b>[Mystery]</b> to unveil the case.</p><p style='margin-top:1em;'>During your investigation:<br>Use <b>[Evidence]</b> to uncover vital clues.<br>Use <b>[Character]</b> to interrogate key figures.<br>Use <b>[Location]</b> to inspect relevant scenes.<br>Use <b>[Action]</b> to flex your detective prowess.</p><p style='margin-top:1em;'>When you've gathered enough leads:<br>Insert <b>[Reveal]</b> to open the trial.<br>Choose your <b>[Choice]</b> to expose the false testimony.</p><p style='margin-top:2em;font-style:italic;'>Trust no one—see through every deception.</p><p style='margin-top:1em;'>Press <b>[M]</b> to skip to instructions and begin.</p></div>`
       },
       {
         img: 'intro 3.png',
-        html: `<div class=\"case-intro\"><h2>TOP SECRET DEVICE:<br>Roulettective</h2><p><b>Roulettective</b> is a Mastermind in MAD.<br>It helps you <b>COLLECT</b> and <b>ASSOCIATE</b> fragments of truth.</p><p style='margin-top:1em;'>When it flashes a new insight in <b>[LIGHT]</b>,<br>retrace your steps to unveil <b>HIDDEN EVIDENCE</b>.</p><p style='margin-top:2em;'>Work alongside <i>Roulettective</i>—see what others cannot.</p><p style='margin-top:2em;'><b>Press M to begin your investigation.</b></p></div>`
+        html: `<div class=\"case-intro\"><h2>TOP SECRET DEVICE:<br>Roulettective</h2><p><b>Roulettective</b> is a Mastermind in MAD.<br>It helps you <b>COLLECT</b> and <b>ASSOCIATE</b> fragments of truth.</p><p style='margin-top:1em;'>When it flashes a new insight in <b>[LIGHT]</b>,<br>retrace your steps to unveil <b>HIDDEN EVIDENCE</b>.</p><p style='margin-top:2em;'>Work alongside <i>Roulettective</i>—see what others cannot.</p><p style='margin-top:2em;'><b>Press M to immediately begin your investigation</b></p></div>`
       }
     ];
     const idx = gameState.introPageIndex;
+    // 为case-card添加intro模式类
+    elements.caseCard.classList.add('intro-mode-active');
     // Set image (left)
     elements.cardImage.style.display = 'block';
-    elements.cardImage.innerHTML = `<img src='${introData[idx].img}' alt='Intro Slide ${idx+1}' style='max-width:100%;max-height:400px;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.4);margin-bottom:2em;'>`;
+    elements.cardImage.innerHTML = `<div class="intro-mode-container"><img src='${introData[idx].img}' alt='Intro Slide ${idx+1}'></div>`;
     // Hide text on left
     elements.cardContent.className = 'card-content intro-mode';
     elements.cardContent.innerHTML = '';
@@ -779,7 +827,13 @@ function updateUI() {
     // Journal (right): show intro text only
     elements.slideHistory.innerHTML = introData[idx].html;
     return;
+  } else {
+    // 移除intro模式类
+    elements.caseCard.classList.remove('intro-mode-active');
   }
+  
+  console.log(`In updateUI, after intro check, introPageIndex: ${gameState.introPageIndex}`);
+  
   // Update card content
   if (gameState.currentIndex >= 0 && gameState.currentIndex < gameState.content.length) {
     // Special handling for Reveal card format
@@ -1063,8 +1117,8 @@ function resetGameState() {
     pendingAssociationIndex: undefined,
     // 重置音乐状态
     isMusicPlaying: false,
-    // ===== NEW: intro page index =====
-    introPageIndex: 0          // 0, 1, 2 for intro pages, null for normal game
+    // ===== MODIFIED: introPageIndex should be null for normal game =====
+    introPageIndex: null          // Set to null to ensure we're not in intro mode
   };
   
   // 停止背景音乐
