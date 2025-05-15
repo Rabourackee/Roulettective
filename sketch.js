@@ -817,15 +817,54 @@ function updateUI() {
     const introData = [
       {
         img: 'intro1.png',
-        html: `<div class=\"case-intro\"><h2 style='margin-bottom:1.5em;'>You are a member of the <b>Mystery Analysis Division (MAD)</b> tasked with this investigation.</h2><p>Before you lies a dossier of official files and fragmented photographs.</p><p>Your mission is to uncover the truth concealed within these pages.</p><p style='margin-top:2em;'>Use <b>[Forward]</b> & <b>[Back]</b> to see different slides.<br>Or press <b>[M]</b> to skip directly to the last page.</p></div>`
+        html: `<div class="case-intro" style="text-align:left; padding:0 10%;">
+          <h2 style="margin-bottom:1.5em; text-align:center;">You are a member of the <b>Mystery Analysis Division (MAD)</b> tasked with this investigation.</h2>
+          
+          <p>Before you lies a dossier of official files and fragmented photographs.</p>
+          
+          <p>Your mission is to uncover the truth concealed within these pages.</p>
+          
+          <p style="margin-top:2em;">Use <b>[Forward]</b> & <b>[Back]</b> to see different slides.<br>
+          Or press <b>[M]</b> to skip directly to the last page.</p>
+        </div>`
       },
       {
         img: 'intro 2.png',
-        html: `<div class=\"case-intro\"><h2>Detective's Guide</h2><p>Insert <b>[Mystery]</b> to unveil the case.</p><p style='margin-top:1em;'>During your investigation:<br>Use <b>[Evidence]</b> to uncover vital clues.<br>Use <b>[Character]</b> to interrogate key figures.<br>Use <b>[Location]</b> to inspect relevant scenes.<br>Use <b>[Action]</b> to flex your detective prowess.</p><p style='margin-top:1em;'>When you've gathered enough leads:<br>Insert <b>[Reveal]</b> to open the trial.<br>Choose your <b>[Choice]</b> to expose the false testimony.</p><p style='margin-top:2em;font-style:italic;'>Trust no one—see through every deception.</p><p style='margin-top:1em;'>Press <b>[M]</b> to skip to instructions and begin.</p></div>`
+        html: `<div class="case-intro" style="text-align:left; padding:0 10%;">
+          <h2 style="margin-bottom:1.5em; text-align:center;">Detective's Guide</h2>
+          
+          <p>Insert <b>[Mystery]</b> to unveil the case.</p>
+          
+          <p style="margin-top:1em;">During your investigation:<br>
+          • Use <b>[Evidence]</b> to uncover vital clues.<br>
+          • Use <b>[Character]</b> to interrogate key figures.<br>
+          • Use <b>[Location]</b> to inspect relevant scenes.<br>
+          • Use <b>[Action]</b> to flex your detective prowess.</p>
+          
+          <p style="margin-top:1em;">When you've gathered enough leads:<br>
+          • Insert <b>[Reveal]</b> to open the trial.<br>
+          • Choose your <b>[Choice]</b> to expose the false testimony.</p>
+          
+          <p style="margin-top:2em; font-style:italic;">Trust no one—see through every deception.</p>
+          
+          <p style="margin-top:1em;">Press <b>[M]</b> to skip to instructions and begin.</p>
+        </div>`
       },
       {
         img: 'intro 3.png',
-        html: `<div class=\"case-intro\"><h2>TOP SECRET DEVICE:<br>Roulettective</h2><p><b>Roulettective</b> is a Mastermind in MAD.<br>It helps you <b>COLLECT</b> and <b>ASSOCIATE</b> fragments of truth.</p><p style='margin-top:1em;'>When it flashes a new insight in <b>[LIGHT]</b>,<br>retrace your steps to unveil <b>HIDDEN EVIDENCE</b>.</p><p style='margin-top:2em;'>Work alongside <i>Roulettective</i>—see what others cannot.</p><p style='margin-top:2em;'><b>Press M to immediately begin your investigation</b></p></div>`
+        html: `<div class="case-intro" style="text-align:left; padding:0 10%;">
+          <h2 style="margin-bottom:1.5em; text-align:center;">TOP SECRET DEVICE:<br>Roulettective</h2>
+          
+          <p><b>Roulettective</b> is a Mastermind in MAD.<br>
+          It helps you <b>COLLECT</b> and <b>ASSOCIATE</b> fragments of truth.</p>
+          
+          <p style="margin-top:1em;">When it flashes a new insight in <b>[LIGHT]</b>,<br>
+          retrace your steps to unveil <b>HIDDEN EVIDENCE</b>.</p>
+          
+          <p style="margin-top:2em;">Work alongside <i>Roulettective</i>—see what others cannot.</p>
+          
+          <p style="margin-top:2em;"><b>Press M to immediately begin your investigation</b></p>
+        </div>`
       }
     ];
     const idx = gameState.introPageIndex;
