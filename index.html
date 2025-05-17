@@ -6,6 +6,125 @@
   <title>CRIME ARCHIVE - CASE INVESTIGATION SYSTEM</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap">
+  <script src="p5.min.js"></script>
+  <script src="p5.webserial.js"></script>
+  <script>
+    let arduinoController = function(p) {
+      let serialPort;
+      let isConnected = false;
+      let lastLampState = false;
+      let connectButton;
+      let connectionCheckInterval;
+
+      p.setup = function() {
+        p.noCanvas();
+        console.log('Arduino Lamp Controller initialized');
+        
+        createConnectButton();
+        
+        startMonitoring();
+        
+        // 添加定期检查连接状态的功能
+        connectionCheckInterval = setInterval(checkConnection, 2000);
+      };
+
+      function createConnectButton() {
+        console.log('Creating connect button');
+        connectButton = p.createButton('Connect to Arduino');
+        connectButton.position(p.windowWidth - 150, p.windowHeight - 50);
+        connectButton.style('z-index', '1000');
+        connectButton.style('padding', '8px');
+        connectButton.style('background-color', '#333');
+        connectButton.style('color', '#fff');
+        connectButton.style('border', 'none');
+        connectButton.style('border-radius', '4px');
+        connectButton.style('cursor', 'pointer');
+        connectButton.mousePressed(connectToArduino);
+        console.log('Connect button created');
+      }
+
+      async function connectToArduino() {
+        console.log('Attempting to connect to Arduino...');
+        
+        if (!serialPort) {
+          serialPort = p.createSerial();
+        }
+        
+        try {
+          await serialPort.open(9600);
+          isConnected = true;
+          console.log('Connected to Arduino!');
+          
+          // 连接成功后隐藏按钮
+          connectButton.style('display', 'none');
+          
+          updateArduinoLamp();
+        } catch (error) {
+          console.error('Error connecting to Arduino:', error);
+          alert('Failed to connect to Arduino. Please check if it is connected and try again.');
+        }
+      }
+      
+      // 检查连接状态
+      function checkConnection() {
+        if (serialPort && serialPort.opened()) {
+          if (!isConnected) {
+            isConnected = true;
+            connectButton.style('display', 'none');
+          }
+        } else {
+          if (isConnected) {
+            isConnected = false;
+            connectButton.style('display', 'block');
+          }
+        }
+      }
+
+      function startMonitoring() {
+        console.log('Started monitoring red light');
+        setInterval(() => {
+          const insightLight = document.getElementById('insight-light');
+          if (!insightLight) {
+            console.warn('Insight light element not found');
+            return;
+          }
+          
+          const isLightOn = insightLight.classList.contains('active');
+          
+          if (isLightOn !== lastLampState) {
+            console.log(`Light state changed: ${isLightOn ? 'ON' : 'OFF'}`);
+            lastLampState = isLightOn;
+            updateArduinoLamp();
+          }
+        }, 500);
+      }
+
+      function updateArduinoLamp() {
+        if (!isConnected || !serialPort) {
+          console.log('Not connected to Arduino, skipping lamp update');
+          return;
+        }
+        
+        const command = lastLampState ? '1' : '0';
+        serialPort.write(command);
+        console.log(`Sent command to Arduino: ${command} (Lamp ${lastLampState ? 'ON' : 'OFF'})`);
+      }
+
+      p.windowResized = function() {
+        if (connectButton) {
+          connectButton.position(p.windowWidth - 150, p.windowHeight - 50);
+        }
+      };
+    };
+
+    window.addEventListener('DOMContentLoaded', () => {
+      console.log('DOM fully loaded');
+      console.log('p5 available:', typeof p5 !== 'undefined');
+      console.log('p5.WebSerial available:', typeof p5 !== 'undefined' && typeof p5.prototype.WebSerial !== 'undefined');
+      
+      new p5(arduinoController);
+    });
+  </script>
 </head>
 <body>
   <audio id="bgm" loop>
