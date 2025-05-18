@@ -379,7 +379,7 @@ async function createMysterySlide() {
   }
   
   // Show loading state
-  setLoading(true, "Generating new mystery...");
+  setLoading(true, "Opening New Case File");
   
   try {
     // Reset game state
@@ -522,7 +522,27 @@ async function createSlide(slideType) {
   }
   
   // Show loading state
-  setLoading(true, `Generating ${slideType} content...`);
+  let loadingMessage;
+  switch(slideType) {
+    case "Evidence":
+      loadingMessage = "Retrieve Files of Evidence from the Archive";
+      break;
+    case "Character":
+      loadingMessage = "Summoning Witness for Interview";
+      break;
+    case "Location":
+      loadingMessage = "Analyzing Crime Scene Location";
+      break;
+    case "Action":
+      loadingMessage = "Executing Detective Procedure";
+      break;
+    case "Reveal":
+      loadingMessage = "Assembling Case Theories";
+      break;
+    default:
+      loadingMessage = `Generating ${slideType} content...`;
+  }
+  setLoading(true, loadingMessage);
   
   try {
     // Generate system prompt
@@ -764,7 +784,7 @@ async function submitTheory(theoryNumber) {
   if (gameState.phase !== "reveal") return;
   
   // Show loading
-  setLoading(true, "Generating conclusion...");
+  setLoading(true, "Filing Final Case Report");
   
   try {
     // Check if correct
@@ -1503,7 +1523,7 @@ async function navigateBack() {
     gameState.currentIndex--;
     // 检查是否翻到待更新slide
     if (gameState.pendingAssociationIndex !== undefined && gameState.currentIndex === gameState.pendingAssociationIndex) {
-      setLoading(true, "Generating new insight...");
+      setLoading(true, "Connecting Case Elements");
       const association = gameState.associationTargets.find(assoc => assoc.targetIndex === gameState.currentIndex);
       if (association) {
         await updateSlideWithAssociation(association);
@@ -1550,7 +1570,7 @@ async function navigateForward() {
     
     // 检查是否翻到待更新slide
     if (gameState.pendingAssociationIndex !== undefined && gameState.currentIndex === gameState.pendingAssociationIndex) {
-      setLoading(true, "Generating new insight...");
+      setLoading(true, "Connecting Case Elements");
       const association = gameState.associationTargets.find(assoc => assoc.targetIndex === gameState.currentIndex);
       if (association) {
         await updateSlideWithAssociation(association);
@@ -1578,7 +1598,7 @@ async function navigateReturn() {
     elements.instructionBar.textContent = "No active connections to process.";
     return;
   }
-  setLoading(true, "Processing connection insight...");
+  setLoading(true, "Analyzing Connection Patterns");
   try {
     const targetIndex = gameState.insightChain.pop();
     gameState.insightLevel--;
