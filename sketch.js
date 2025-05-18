@@ -65,7 +65,8 @@ let navigationState = {
   introPages: 3,    // intro有3页
   introVisited: false,  // 是否已访问过intro
   gameStarted: false,   // 游戏是否已开始
-  standbyActive: true   // 是否已激活待机页面
+  standbyActive: true,   // 是否已激活待机页面
+  ignoreNextSlideRequest: false  // 是否忽略下一次slide请求
 };
 
 // Initialize OpenAI
@@ -151,7 +152,8 @@ async function setup() {
       introPages: 3,
       introVisited: false,
       gameStarted: false,
-      standbyActive: true
+      standbyActive: true,
+      ignoreNextSlideRequest: false
     };
     
     // Cache DOM elements
@@ -284,7 +286,7 @@ function handleKeyPress(event) {
     // 在待机页面按B键可以查看intro
     if (key === 'b') {
       gameState.isStandbyPage = false;
-      stopStandbyMusic();
+      // 不再停止待机音乐，因为intro页面也使用相同的音乐
       gameState.introPageIndex = 0; // 跳转到intro的第一页
       updateUI();
       return;
@@ -294,6 +296,16 @@ function handleKeyPress(event) {
   
   // If in intro mode
   if (gameState.introPageIndex !== null) {
+    // 在intro中处理R键，跳转回待机页面
+    if (key === 'r') {
+      gameState.isStandbyPage = true;
+      playStandbyMusic();
+      gameState.introPageIndex = null;
+      navigationState.standbyActive = true;
+      updateUI();
+      return;
+    }
+    
     if (key === 'b') { 
       // 在intro中，按B键是进入下一页，而不是返回上一页
       if (gameState.introPageIndex < 2) {
@@ -471,6 +483,13 @@ function extractMysteryIdentifier(content) {
 async function createSlide(slideType) {
   // Check if already loading
   if (gameState.isLoading) return;
+  
+  // 检查是否需要忽略本次slide请求
+  if (navigationState.ignoreNextSlideRequest) {
+    navigationState.ignoreNextSlideRequest = false; // 重置标记
+    elements.instructionBar.textContent = "下一张幻灯片即将生成，请再次按下对应按键。";
+    return;
+  }
   
   // Check if need to start with Mystery first
   if (gameState.slides.length === 0) {
@@ -890,6 +909,9 @@ function updateUI() {
   
   // ===== EXISTING: Show intro pages if in intro mode =====
   if (gameState.introPageIndex !== null) {
+    // 在intro页面播放待机页面音乐
+    playStandbyMusic();
+    
     const introData = [
       {
         img: 'intro1.png',
@@ -1473,6 +1495,11 @@ async function navigateBack() {
   // 正常游戏内导航
   if (gameState.slides.length === 0) return;
   if (gameState.currentIndex > 0) {
+    // 如果我们从当前最新的slide往回看，标记需要忽略下一次slide请求
+    if (gameState.currentIndex === gameState.slides.length - 1) {
+      navigationState.ignoreNextSlideRequest = true;
+    }
+    
     gameState.currentIndex--;
     // 检查是否翻到待更新slide
     if (gameState.pendingAssociationIndex !== undefined && gameState.currentIndex === gameState.pendingAssociationIndex) {
@@ -1515,6 +1542,12 @@ async function navigateForward() {
   if (gameState.slides.length === 0) return;
   if (gameState.currentIndex < gameState.slides.length - 1) {
     gameState.currentIndex++;
+    
+    // 如果导航到了最新的slide，标记需要忽略下一次slide请求
+    if (gameState.currentIndex === gameState.slides.length - 1) {
+      navigationState.ignoreNextSlideRequest = true;
+    }
+    
     // 检查是否翻到待更新slide
     if (gameState.pendingAssociationIndex !== undefined && gameState.currentIndex === gameState.pendingAssociationIndex) {
       setLoading(true, "Generating new insight...");
