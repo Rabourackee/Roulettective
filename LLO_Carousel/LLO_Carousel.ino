@@ -37,9 +37,15 @@ struct {
   {{0x04, 0x90, 0x19, 0x20, 0x7F, 0x61, 0x80}, 'C'},
 
   {{0x04, 0x27, 0x49, 0x85, 0x73, 0x00, 0x00}, 'L'},
+  {{0xAC, 0xFE, 0xE7, 0x00}, 'L'},
+  {{0x04, 0x55, 0x69, 0x85, 0x73, 0x00, 0x00}, 'L'},
+  {{0xE3, 0x0E, 0xE5, 0x00}, 'L'},
+  {{0x04, 0xDA, 0x5E, 0x85, 0x73, 0x00, 0x00}, 'L'},
 
   {{0x04, 0xD5, 0x10, 0x07, 0x6F, 0x61, 0x80}, 'A'},
   {{0x04, 0x53, 0xE5, 0x85, 0x73, 0x00, 0x00}, 'A'},
+  {{0xE5, 0x4B, 0xF5, 0x00}, 'A'},
+  {{0x32, 0x89, 0xE9, 0x00}, 'A'},
 
   {{0x04, 0x39, 0x26, 0x85, 0x73, 0x00, 0x00}, 'V'},
 
@@ -47,7 +53,7 @@ struct {
   {{0x04, 0xF8, 0x9E, 0x85, 0x73, 0x00, 0x00}, '2'},
   {{0x04, 0x3B, 0x93, 0x85, 0x73, 0x00, 0x00}, '3'},
   {{0x04, 0x52, 0x9D, 0x85, 0x73, 0x00, 0x00}, '4'},
-  {{0x04, 0x06, 0x25, 0x23, 0x8F, 0x61, 0x80}, '5'}
+  {{0x04, 0x06, 0x25, 0x23, 0x8F, 0x61, 0x80}, '5'},
 };
 
 // 用于跟踪上一次读取的卡片UID
@@ -302,7 +308,7 @@ void homeStepperMotor() {
   Serial.println("步进电机归零中...");
   
   // 向反方向转到限位点
-  digitalWrite(dirPin, HIGH);  // 修改：原来是 LOW
+  digitalWrite(dirPin, LOW);  // 修改：原来是 HIGH
   while (digitalRead(limitSwitchPin) == LOW) {
     stepOnce(800); // 慢速
   }
@@ -310,7 +316,7 @@ void homeStepperMotor() {
   Serial.println("限位开关触发，退出限位区域...");
 
   // 退出限位区域
-  digitalWrite(dirPin, LOW);  // 修改：原来是 HIGH
+  digitalWrite(dirPin, HIGH);  // 修改：原来是 LOW
   for (int i = 0; i < exitSteps; i++) {
     stepOnce(800);
   }
@@ -326,7 +332,7 @@ void homeStepperMotor() {
 void stepperRotateForward() {
   Serial.println("步进电机正转一圈...");
   
-  digitalWrite(dirPin, LOW);  // 修改：原来是 HIGH
+  digitalWrite(dirPin, HIGH);  // 修改：原来是 LOW
   bool validLimitSwitchHit = false;
   
   // 如果上次是反转，本次是正转，忽略第一次限位开关触发
@@ -411,7 +417,7 @@ void stepperRotateForward() {
 void stepperRotateReverse() {
   Serial.println("步进电机反转一圈...");
   
-  digitalWrite(dirPin, HIGH);  // 修改：原来是 LOW
+  digitalWrite(dirPin, LOW);  // 修改：原来是 HIGH
   bool validLimitSwitchHit = false;
   
   // 如果上次是正转，本次是反转，忽略第一次限位开关触发
@@ -559,10 +565,26 @@ char findKeyForCard(byte *uid) {
   
   for (int i = 0; i < numMappings; i++) {
     bool match = true;
-    for (int j = 0; j < 7; j++) {
-      if (uid[j] != cardMapping[i].uid[j]) {
-        match = false;
-        break;
+    
+    // 检查是否是4字节卡片 (以第5位是否为0作为判断依据)
+    bool isCard4Byte = cardMapping[i].uid[4] == 0x00 && cardMapping[i].uid[5] == 0x00 && cardMapping[i].uid[6] == 0x00;
+    
+    // 新增的4字节卡片 (判断方法是最后3位全为0)
+    if (isCard4Byte && cardMapping[i].uid[0] != 0x04) {
+      // 只对比前4个字节
+      for (int j = 0; j < 4; j++) {
+        if (uid[j] != cardMapping[i].uid[j]) {
+          match = false;
+          break;
+        }
+      }
+    } else {
+      // 7字节卡片：对比所有7位
+      for (int j = 0; j < 7; j++) {
+        if (uid[j] != cardMapping[i].uid[j]) {
+          match = false;
+          break;
+        }
       }
     }
     
