@@ -942,8 +942,7 @@ function updateUI() {
           
           <p>Your mission is to uncover the truth concealed within these pages.</p>
           
-          <p style="margin-top:2em;">Use <b>[Forward]</b> & <b>[Back]</b> to see different slides.<br>
-          Or press <b>[M]</b> to skip directly to the last page.</p>
+          <p style="margin-top:2em;">Use <b>[Forward]</b> & <b>[Back]</b> to see different slides.</p>
         </div>`
       },
       {
@@ -961,11 +960,8 @@ function updateUI() {
           • Insert <b>[Reveal]</b> to open the trial.<br>
           • Choose your <b>[Choice]</b> to expose the false testimony.</p>
           
-          <p style="margin-top:1em;">Press <b>[R]</b> anytime to restart and return to standby screen.</p>
-          
-          <p style="margin-top:2em; font-style:italic;">Trust no one—see through every deception.</p>
-          
-          <p style="margin-top:1em;">Press <b>[M]</b> to skip to standby screen.</p>
+          <p style="margin-top:1em;">Press Reset button anytime to restart and return to standby screen.</p>
+
         </div>`
       },
       {
@@ -981,7 +977,7 @@ function updateUI() {
           
           <p style="margin-top:2em;">Work alongside <i>Roulettective</i>—see what others cannot.</p>
           
-          <p style="margin-top:2em;"><b>Press F to continue to standby screen</b></p>
+          <p style="margin-top:2em;"><b>Press the Red Reset button to continue to standby screen</b></p>
         </div>`
       }
     ];

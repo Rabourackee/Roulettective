@@ -50,6 +50,7 @@ body {
   justify-content: center;
   align-items: center;
   padding: 20px;
+  font-size: 1.2rem;
   background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23333333' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E");
 }
 
@@ -113,7 +114,7 @@ main {
 }
 
 .slide-indicator {
-  font-size: 1rem;
+  font-size: 1.25rem;
   font-weight: 600;
   color: var(--light-text);
   text-transform: uppercase;
@@ -123,7 +124,7 @@ main {
 .insight-badge {
   background-color: var(--accent-primary);
   color: var(--bg-color);
-  font-size: 0.8rem;
+  font-size: 1rem;
   font-weight: 600;
   padding: var(--spacing-xs) var(--spacing-md);
   border-radius: var(--border-radius-sm);
@@ -147,7 +148,8 @@ main {
   padding: var(--spacing-lg);
   flex-grow: 1;
   overflow-y: auto;
-  line-height: 1.7;
+  line-height: 1.8;
+  font-size: 1.1rem;
   font-family: 'Special Elite', monospace;
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
@@ -158,6 +160,7 @@ main {
 .case-intro {
   text-align: center;
   padding: var(--spacing-xl) 0;
+  font-size: 1.3rem;
 }
 
 .card-content p {
@@ -232,7 +235,7 @@ main {
   left: 50%;
   transform: translate(-50%, -50%);
   font-family: 'Special Elite', monospace;
-  font-size: 1rem;
+  font-size: 1.25rem;
   color: var(--light-text);
   text-transform: uppercase;
   letter-spacing: 2px;
@@ -266,7 +269,7 @@ main {
   border: none;
   padding: var(--spacing-sm) var(--spacing-md);
   font-family: 'Special Elite', monospace;
-  font-size: 0.9rem;
+  font-size: 1.1rem;
   border-radius: var(--border-radius-sm);
   cursor: pointer;
   transition: all 0.3s ease;
@@ -284,7 +287,7 @@ main {
 .theory-prompt {
   text-align: center;
   font-family: 'Special Elite', monospace;
-  font-size: 1rem;
+  font-size: 1.25rem;
   color: var(--light-text);
   margin-top: var(--spacing-md);
   text-transform: uppercase;
@@ -366,7 +369,7 @@ main {
 
 .loading-message {
   font-family: 'Special Elite', monospace;
-  font-size: 1.2rem;
+  font-size: 1.5rem;
   color: var(--light-text);
   text-transform: uppercase;
   letter-spacing: 2px;
@@ -391,7 +394,7 @@ main {
   background-color: var(--bg-light);
   padding: var(--spacing-md);
   border-bottom: 2px solid var(--border-color);
-  font-size: 1rem;
+  font-size: 1.5rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 2px;
@@ -429,7 +432,7 @@ main {
 }
 
 .entry-date {
-  font-size: 0.8rem;
+  font-size: 1rem;
   color: var(--text-muted);
   margin-bottom: var(--spacing-sm);
   font-family: 'Special Elite', monospace;
@@ -437,7 +440,7 @@ main {
 }
 
 .entry-content {
-  font-size: 0.9rem;
+  font-size: 1.1rem;
   line-height: 1.6;
   color: var(--light-text);
   font-family: 'Special Elite', monospace;
@@ -453,7 +456,7 @@ main {
   transition: all 0.3s ease;
   position: relative;
   font-family: 'Special Elite', monospace;
-  font-size: 0.9rem;
+  font-size: 1.1rem;
   line-height: 1.5;
   color: var(--light-text);
 }
@@ -524,7 +527,7 @@ kbd {
   box-shadow: 0 1px 1px rgba(0, 0, 0, .2), 0 2px 0 0 rgba(255, 255, 255, .7) inset;
   color: var(--light-text);
   display: inline-block;
-  font-size: .85em;
+  font-size: 1rem;
   font-weight: 700;
   line-height: 1;
   padding: 2px 4px;
@@ -549,6 +552,7 @@ kbd {
   background-color: var(--bg-light);
   border-radius: var(--border-radius-sm);
   border: 1px solid var(--border-color);
+  font-size: 1.1rem;
 }
 
 /* Insight highlight styles */
@@ -567,7 +571,7 @@ kbd {
   left: 10px;
   background-color: var(--bg-color);
   padding: 0 var(--spacing-xs);
-  font-size: 0.7rem;
+  font-size: 0.9rem;
   color: var(--accent-primary);
   letter-spacing: 1px;
   font-family: 'Special Elite', monospace;
@@ -653,7 +657,7 @@ footer {
   font-family: 'Special Elite', cursive;
   text-align: center;
   margin-top: 2rem;
-  font-size: 1.2rem;
+  font-size: 1.5rem;
   color: #ddd;
 }
 
@@ -667,4 +671,25 @@ footer {
 .restart-btn:hover {
   background-color: #8b0000;
   transform: translateY(-2px);
+}
+
+/* Increase heading sizes if they exist in the HTML */
+h1 {
+  font-size: 2rem;
+}
+
+h2 {
+  font-size: 1.75rem;
+}
+
+h3 {
+  font-size: 1.5rem;
+}
+
+h4 {
+  font-size: 1.25rem;
+}
+
+h5, h6 {
+  font-size: 1.1rem;
 }
