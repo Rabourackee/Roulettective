@@ -23,252 +23,9 @@ const CONFIG = {
   imageStyle: "vintage film noir style, black and white, criminal scene, dramatic lighting, high contrast, grainy texture, cinematic composition", // DALL-E图片风格
   imageSize: "1024x1024",      // 图片尺寸
   // 添加音乐配置
-  musicVolume: 0.5,           // 音乐音量
-  // 添加缓存配置
-  cacheConfig: {
-    minCardsInCache: 2,        // 每种类型最少缓存数量
-    maxRetries: 5,             // API调用最大重试次数 (increased from 3)
-    retryDelay: 2000,          // 重试延迟(ms) (increased from 1000)
-    backgroundSyncInterval: 5000 // 后台同步间隔(ms)
-  },
-  // 添加请求控制配置
-  requestControl: {
-    maxConcurrentRequests: 1,  // 最大并发请求数 (reduced from 2)
-    minRequestInterval: 2000,  // 最小请求间隔(ms) (reduced from 20000)
-    requestQueue: [],          // 请求队列
-    activeRequests: 0,         // 当前活跃请求数
-    lastRequestTime: 0         // 上次请求时间
-  }
-};
 
-// ContentCache Module
-const ContentCache = {
-  mystery: null,
-  evidence: [],
-  characters: [],
-  locations: [],
-  actions: [],
-  associations: [],
-  images: new Map(), // 存储图片URL
-  generationStatus: {
-    isGenerating: false,
-    progress: 0,
-    lastSync: null
-  },
-  
-  // 重置缓存
-  reset() {
-    this.mystery = null;
-    this.evidence = [];
-    this.characters = [];
-    this.locations = [];
-    this.actions = [];
-    this.associations = [];
-    this.images.clear();
-    this.generationStatus = {
-      isGenerating: false,
-      progress: 0,
-      lastSync: null
-    };
-  },
-  
-  // 获取卡片
-  getCard(type) {
-    switch(type) {
-      case 'Evidence': return this.evidence.shift();
-      case 'Character': return this.characters.shift();
-      case 'Location': return this.locations.shift();
-      case 'Action': return this.actions.shift();
-      default: return null;
-    }
-  },
-  
-  // 检查缓存状态
-  needsRefill(type) {
-    const cache = this[type.toLowerCase() + 's'];
-    return Array.isArray(cache) && cache.length < CONFIG.cacheConfig.minCardsInCache;
-  },
-  
-  // 获取图片URL
-  getImage(index) {
-    return this.images.get(index);
-  },
-  
-  // 存储图片URL
-  setImage(index, url) {
-    this.images.set(index, url);
-  }
-};
+  musicVolume: 0.5            // 音乐音量
 
-// Background Generator Module
-const BackgroundGenerator = {
-  isRunning: false,
-  
-  // 启动后台生成器
-  async start() {
-    if (this.isRunning) return;
-    this.isRunning = true;
-    
-    try {
-      // 并行生成所有类型的卡片
-      await Promise.all([
-        this.generateCards('Evidence', CONFIG.maxCardCounts.Evidence),
-        this.generateCards('Character', CONFIG.maxCardCounts.Character),
-        this.generateCards('Location', CONFIG.maxCardCounts.Location),
-        this.generateCards('Action', CONFIG.maxCardCounts.Action)
-      ]);
-      
-      // 生成关联链
-      await this.generateAssociations();
-      
-      ContentCache.generationStatus.isGenerating = false;
-      ContentCache.generationStatus.progress = 100;
-      ContentCache.generationStatus.lastSync = new Date();
-      
-    } catch (error) {
-      console.error('Background generation error:', error);
-      this.handleError(error);
-    } finally {
-      this.isRunning = false;
-    }
-  },
-  
-  // 生成指定类型的卡片
-  async generateCards(type, amount) {
-    const promises = [];
-    for (let i = 0; i < amount; i++) {
-      promises.push(this.generateSingleCard(type));
-    }
-    const results = await Promise.all(promises);
-    ContentCache[type.toLowerCase() + 's'].push(...results);
-  },
-  
-  // 生成单个卡片
-  async generateSingleCard(type) {
-    let retries = 0;
-    while (retries < CONFIG.cacheConfig.maxRetries) {
-      try {
-        const systemPrompt = createSlideSystemPrompt(type);
-        const messages = [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `Generate a ${type} card for this mystery.` }
-        ];
-        
-        const response = await openai.chat.completions.create({
-          model: CONFIG.apiModel,
-          messages: messages
-        });
-        
-        const content = response.choices[0].message.content;
-        
-        // 生成图片
-        const imageUrl = await this.generateImage(content);
-        
-        return {
-          content,
-          imageUrl,
-          type
-        };
-      } catch (error) {
-        retries++;
-        if (retries === CONFIG.cacheConfig.maxRetries) {
-          throw error;
-        }
-        await new Promise(resolve => setTimeout(resolve, CONFIG.cacheConfig.retryDelay));
-      }
-    }
-  },
-  
-  // 生成图片
-  async generateImage(content, retry = 0) {
-    try {
-      const shortPrompt = await summarizeForDalle(content);
-      const safeShortPrompt = shortPrompt.slice(0, 250).trim();
-      const imagePrompt = enhancePromptForDalle(safeShortPrompt);
-      
-      const response = await openai.images.generate({
-        model: "dall-e-3",
-        prompt: imagePrompt,
-        n: 1,
-        size: CONFIG.imageSize
-      });
-      
-      return response.data[0].url;
-    } catch (error) {
-      if (retry < 2) {
-        // 指数退避
-        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retry)));
-        return BackgroundGenerator.generateImage(content, retry + 1);
-      }
-      console.error('Image generation error:', error);
-      return null;
-    }
-  },
-  
-  // 生成关联链
-  async generateAssociations() {
-    const allCards = [
-      ...ContentCache.evidence,
-      ...ContentCache.characters,
-      ...ContentCache.locations,
-      ...ContentCache.actions
-    ];
-    
-    for (let i = 0; i < allCards.length; i++) {
-      for (let j = i + 1; j < allCards.length; j++) {
-        const association = await this.checkAssociation(allCards[i], allCards[j]);
-        if (association) {
-          ContentCache.associations.push(association);
-        }
-      }
-    }
-  },
-  
-  // 检查两个卡片之间的关联
-  async checkAssociation(card1, card2) {
-    try {
-      const systemPrompt = `You are analyzing a mystery game where players discover clues.
-Your task is to determine if these cards have a strong logical connection.
-Rate on a scale of 0.0-1.0 how strongly connected these cards are.
-Only high ratings (${CONFIG.associationThreshold} or higher) indicate a true connection.`;
-      
-      const messages = [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `Card 1 (${card1.type}): ${card1.content}\n\nCard 2 (${card2.type}): ${card2.content}\n\nIs there a strong logical connection between these cards? Rate from 0.0-1.0.` }
-      ];
-      
-      const response = await openai.chat.completions.create({
-        model: CONFIG.apiModel,
-        messages: messages
-      });
-      
-      const analysisResult = response.choices[0].message.content;
-      const ratingMatch = analysisResult.match(/(\d+\.\d+)/);
-      
-      if (ratingMatch) {
-        const rating = parseFloat(ratingMatch[1]);
-        if (rating >= CONFIG.associationThreshold) {
-          return {
-            sourceCard: card1,
-            targetCard: card2,
-            rating,
-            reason: analysisResult.replace(/\d+\.\d+/, "").trim()
-          };
-        }
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('Association check error:', error);
-      return null;
-    }
-  },
-  
-  // 错误处理
-  handleError(error) {
-    console.error('Background generation error:', error);
-    showError(`Background generation error: ${error.message}`);
-  }
 };
 
 // Game state
@@ -299,12 +56,21 @@ let gameState = {
   pendingAssociationIndex: undefined,
   // 添加音乐状态
   isMusicPlaying: false,     // 音乐播放状态
-  // 添加缓存状态
-  cacheStatus: {
-    isInitialized: false,
-    lastSync: null,
-    backgroundSyncTimer: null
-  }
+
+  // ===== MODIFIED: intro page index =====
+  introPageIndex: null,      // null for normal game, 0/1/2 for intro pages
+  // ===== NEW: standby page flag =====
+  isStandbyPage: false       // Flag to indicate if we're on the standby page
+};
+
+// 添加一个特殊导航状态管理
+let navigationState = {
+  introPages: 3,    // intro有3页
+  introVisited: false,  // 是否已访问过intro
+  gameStarted: false,   // 游戏是否已开始
+  standbyActive: true,   // 是否已激活待机页面
+  ignoreNextSlideRequest: false  // 是否忽略下一次slide请求
+
 };
 
 // Initialize OpenAI
@@ -322,6 +88,27 @@ function playBackgroundMusic() {
       console.error("Error playing background music:", error);
     });
     gameState.isMusicPlaying = true;
+  }
+}
+
+
+// 播放待机页面音乐
+function playStandbyMusic() {
+  const standbyBgm = document.getElementById('standby-bgm');
+  if (standbyBgm) {
+    standbyBgm.volume = CONFIG.musicVolume;
+    standbyBgm.play().catch(error => {
+      console.error("Error playing standby music:", error);
+    });
+  }
+}
+
+// 停止待机页面音乐
+function stopStandbyMusic() {
+  const standbyBgm = document.getElementById('standby-bgm');
+  if (standbyBgm) {
+    standbyBgm.pause();
+    standbyBgm.currentTime = 0;
   }
 }
 
@@ -363,6 +150,17 @@ function checkAPIKey() {
 // Initialize game
 async function setup() {
   try {
+    console.log("Setup started");
+    
+    // 初始化导航状态
+    navigationState = {
+      introPages: 3,
+      introVisited: false,
+      gameStarted: false,
+      standbyActive: true,
+      ignoreNextSlideRequest: false
+    };
+    
     // Cache DOM elements
     cacheElements();
     
@@ -395,6 +193,10 @@ async function setup() {
     
     // Attach event listeners
     attachEventListeners();
+    
+    // 直接进入待机页面
+    gameState.isStandbyPage = true;
+    playStandbyMusic();
     
     // Set up UI
     updateUI();
@@ -434,6 +236,7 @@ function cacheElements() {
   elements.locationBtn = document.getElementById('btn-location');
   elements.actionBtn = document.getElementById('btn-action');
   elements.revealBtn = document.getElementById('btn-reveal');
+  elements.restartBtn = document.getElementById('btn-restart');
   // Navigation buttons
   elements.backBtn = document.getElementById('btn-back');
   elements.forwardBtn = document.getElementById('btn-forward');
@@ -454,6 +257,7 @@ function attachEventListeners() {
   if (elements.locationBtn) elements.locationBtn.addEventListener('click', () => createSlide('Location'));
   if (elements.actionBtn) elements.actionBtn.addEventListener('click', () => createSlide('Action'));
   if (elements.revealBtn) elements.revealBtn.addEventListener('click', () => createSlide('Reveal'));
+  if (elements.restartBtn) elements.restartBtn.addEventListener('click', () => restartGame());
   
   // Navigation buttons
   if (elements.returnBtn) elements.returnBtn.addEventListener('click', navigateReturn);
@@ -474,25 +278,87 @@ function attachEventListeners() {
 
 // Handle keyboard shortcuts
 function handleKeyPress(event) {
-  // Ignore keys if loading
   if (gameState.isLoading) return;
-  
   const key = event.key.toLowerCase();
+  
+  console.log(`Key pressed: ${key}, introPageIndex: ${gameState.introPageIndex}, isStandbyPage: ${gameState.isStandbyPage}`);
+  
+  // 如果在待机页面
+  if (gameState.isStandbyPage) {
+    // 在待机页面按F键直接开始新游戏
+    if (key === 'f') {
+      gameState.isStandbyPage = false;
+      stopStandbyMusic();
+      gameState.introPageIndex = null;
+      updateUI();
+      createMysterySlide();
+      return;
+    }
+    // 在待机页面按B键可以查看intro
+    if (key === 'b') {
+      gameState.isStandbyPage = false;
+      // 不再停止待机音乐，因为intro页面也使用相同的音乐
+      gameState.introPageIndex = 0; // 跳转到intro的第一页
+      updateUI();
+      return;
+    }
+    return;
+  }
+  
+  // If in intro mode
+  if (gameState.introPageIndex !== null) {
+    // 在intro中处理R键，跳转回待机页面
+    if (key === 'r') {
+      gameState.isStandbyPage = true;
+      playStandbyMusic();
+      gameState.introPageIndex = null;
+      navigationState.standbyActive = true;
+      updateUI();
+      return;
+    }
+    
+    if (key === 'b') { 
+      // 在intro中，按B键是进入下一页，而不是返回上一页
+      if (gameState.introPageIndex < 2) {
+        gameState.introPageIndex++;
+        updateUI();
+      }
+      return; 
+    }
+    if (key === 'f') { 
+      // 在intro中，按F键是返回上一页，如果已经是第一页，则返回待机页面
+      if (gameState.introPageIndex > 0) {
+        gameState.introPageIndex--;
+        updateUI();
+      } else {
+        // 如果是第一页，返回待机页面
+        gameState.isStandbyPage = true;
+        playStandbyMusic();
+        gameState.introPageIndex = null;
+        navigationState.standbyActive = true;
+        updateUI();
+      }
+      return; 
+    }
+    return;
+  }
   
   // Handle based on key
   switch(key) {
     // Card types
-    case 'm': createMysterySlide(); break;
     case 'e': createSlide('Evidence'); break;
     case 'c': createSlide('Character'); break;
     case 'l': createSlide('Location'); break;
     case 'a': createSlide('Action'); break;
-    case 'r': createSlide('Reveal'); break;
+    case 'v': createSlide('Reveal'); break;
     
     // Navigation
     case 'b': navigateBack(); break;
     case 'f': navigateForward(); break;
     case 't': navigateReturn(); break;
+    
+    // Restart game
+    case 'r': restartGame(); break;
     
     // Theory selection
     case '1': case '2': case '3': case '4': case '5':
@@ -508,6 +374,14 @@ async function createMysterySlide() {
   // Check if already loading
   if (gameState.isLoading) return;
   
+  console.log(`createMysterySlide start, introPageIndex: ${gameState.introPageIndex}, isStandbyPage: ${gameState.isStandbyPage}`);
+  
+  // 如果在待机页面，关闭待机页面
+  if (gameState.isStandbyPage) {
+    gameState.isStandbyPage = false;
+    stopStandbyMusic();
+  }
+  
   // If already in a game, confirm reset
   if (gameState.slides.length > 0) {
     if (!confirm("Starting a new mystery will reset your current progress. Continue?")) {
@@ -516,12 +390,20 @@ async function createMysterySlide() {
   }
   
   // Show loading state
-  setLoading(true, "Generating new mystery...");
+  setLoading(true, "Opening New Case File");
   
   try {
     // Reset game state and cache
     resetGameState();
-    ContentCache.reset();
+
+    console.log(`After resetGameState, introPageIndex: ${gameState.introPageIndex}`);
+    
+    // 确保introPageIndex为null，这样不会回到介绍页面
+    gameState.introPageIndex = null;
+    // 标记游戏已开始
+    navigationState.gameStarted = true;
+    console.log(`After explicit set, introPageIndex: ${gameState.introPageIndex}`);
+
     
     // 开始播放背景音乐
     playBackgroundMusic();
@@ -578,10 +460,14 @@ async function createMysterySlide() {
       console.error('Background generation error:', error);
     });
     
+    console.log(`Before updateUI, introPageIndex: ${gameState.introPageIndex}`);
+    
     // Update UI
     updateUI();
     updatePhaseIndicator();
     updateSlideHistory();
+    
+    console.log(`After updateUI, introPageIndex: ${gameState.introPageIndex}`);
     
     // Hide loading state
     setLoading(false);
@@ -629,6 +515,13 @@ async function createSlide(slideType) {
   // Check if already loading
   if (gameState.isLoading) return;
   
+  // 检查是否需要忽略本次slide请求
+  if (navigationState.ignoreNextSlideRequest) {
+    navigationState.ignoreNextSlideRequest = false; // 重置标记
+    elements.instructionBar.textContent = "下一张幻灯片即将生成，请再次按下对应按键。";
+    return;
+  }
+  
   // Check if need to start with Mystery first
   if (gameState.slides.length === 0) {
     elements.instructionBar.textContent = "You need to create a Mystery card first. Press M to start.";
@@ -660,7 +553,27 @@ async function createSlide(slideType) {
   }
   
   // Show loading state
-  setLoading(true, `Generating ${slideType} content...`);
+  let loadingMessage;
+  switch(slideType) {
+    case "Evidence":
+      loadingMessage = "Retrieve Files of Evidence from the Archive";
+      break;
+    case "Character":
+      loadingMessage = "Summoning Witness for Interview";
+      break;
+    case "Location":
+      loadingMessage = "Analyzing Crime Scene Location";
+      break;
+    case "Action":
+      loadingMessage = "Executing Detective Procedure";
+      break;
+    case "Reveal":
+      loadingMessage = "Assembling Case Theories";
+      break;
+    default:
+      loadingMessage = `Generating ${slideType} content...`;
+  }
+  setLoading(true, loadingMessage);
   
   try {
     let slideContent;
@@ -779,11 +692,11 @@ Occasionally introduce elements that could strongly relate to or contradict earl
   // ======2025511update: Enhanced prompts for each card type
   switch(slideType) {
     case "Evidence":
-      // Evidence may be crucial or misleading
-      return basePrompt + `\n\nFor this Evidence slide:\n- Describe one physical clue in 1-2 sentences maximum.\n- Randomly decide if this evidence is crucial or misleading/irrelevant, and make it clear in the description (e.g., 'this clue may be misleading' or 'this clue is crucial').\n- Be direct and factual, avoid speculation.\n- Focus on what's observed, not what it means.\n- Consider adding details that might confirm or contradict previously known information.`;
+      // Evidence: only describe the clue, no mention of misleading/irrelevant
+      return basePrompt + `\n\nFor this Evidence slide:\n- Describe one physical clue in 1-2 sentences maximum.\n- Be direct and factual, avoid speculation.\n- Focus on what's observed, not what it means.\n- Consider adding details that might confirm or contradict previously known information.`;
     case "Character":
-      // Witness may change statement if new evidence/location appears
-      return basePrompt + `\n\nFor this Character slide:\n- Introduce one witness in 1-2 sentences maximum.\n- Include only their name, role, and a very brief statement.\n- If new evidence or location has appeared, the witness may change their statement or provide new information.\n- Keep it minimal but revealing.\n- Consider adding details about alibi, background, or connections that might relate to previous clues.`;
+      // Character: only describe the character as the main focus, do not mention anyone lying on the floor or similar scene description
+      return basePrompt + `\n\nFor this Character slide:\n- Introduce one witness in 1-2 sentences maximum.\n- Focus on describing the character as the main subject (name, role, appearance, or background). \n- Do not generate any statement or quote.\n- The image for this card should focus on a portrait or clear depiction of the character, not the environment or a scene.\n- Keep it minimal but revealing.\n- Consider adding details about alibi, background, or connections that might relate to previous clues.`;
     case "Location":
       // New location may trigger chain reactions
       return basePrompt + `\n\nFor this Location slide:\n- Describe one place in 1-2 sentences maximum.\n- Include just one distinctive detail.\n- If this location is new, it may trigger a chain reaction: a witness may recall something new, or a new clue may be found.\n- Be direct and specific.\n- Consider including elements that might connect to previous characters or evidence.`;
@@ -936,7 +849,7 @@ async function submitTheory(theoryNumber) {
   if (gameState.phase !== "reveal") return;
   
   // Show loading
-  setLoading(true, "Generating conclusion...");
+  setLoading(true, "Filing Final Case Report");
   
   try {
     // Check if correct
@@ -1047,6 +960,117 @@ function showError(message) {
 
 // Update UI based on current game state
 function updateUI() {
+  console.log(`updateUI called, introPageIndex: ${gameState.introPageIndex}, isStandbyPage: ${gameState.isStandbyPage}`);
+  
+  // ===== NEW: Show standby page if active =====
+  if (gameState.isStandbyPage) {
+    // 为case-card添加standby模式类
+    elements.caseCard.classList.add('standby-mode-active');
+    elements.caseCard.classList.remove('intro-mode-active');
+    
+    // 设置全屏图片，隐藏其他UI元素
+    elements.cardImage.style.display = 'block';
+    elements.cardImage.innerHTML = `<div class="standby-container fullscreen"><img src='Standby.jpg' alt='Standby Screen'></div>`;
+    
+    // 隐藏所有UI元素
+    elements.cardContent.className = 'card-content standby-mode';
+    elements.cardContent.innerHTML = '';
+    elements.cardHeader = document.querySelector('.card-header');
+    if (elements.cardHeader) elements.cardHeader.style.display = 'none';
+    elements.revealPanel.classList.remove('active');
+    elements.slideIndicator.textContent = '';
+    elements.insightBadge.classList.remove('visible');
+    elements.slideHistory.innerHTML = '';
+    elements.instructionBar.textContent = '';
+    
+    return;
+  } else {
+    // 移除standby模式类
+    elements.caseCard.classList.remove('standby-mode-active');
+    // 恢复header显示
+    elements.cardHeader = document.querySelector('.card-header');
+    if (elements.cardHeader) elements.cardHeader.style.display = 'flex';
+  }
+  
+  // ===== EXISTING: Show intro pages if in intro mode =====
+  if (gameState.introPageIndex !== null) {
+    // 在intro页面播放待机页面音乐
+    playStandbyMusic();
+    
+    const introData = [
+      {
+        img: 'intro1.png',
+        html: `<div class="case-intro" style="text-align:left; padding:0 10%;">
+          <h2 style="margin-bottom:1.5em; text-align:center;">You are a member of the <b>Mystery Analysis Division (MAD)</b> tasked with this investigation.</h2>
+          
+          <p>Before you lies a dossier of official files and fragmented photographs.</p>
+          
+          <p>Your mission is to uncover the truth concealed within these pages.</p>
+          
+          <p style="margin-top:2em;">Use <b>[Forward]</b> & <b>[Back]</b> to see different slides.</p>
+        </div>`
+      },
+      {
+        img: 'intro 2.png',
+        html: `<div class="case-intro" style="text-align:left; padding:0 10%;">
+          <h2 style="margin-bottom:1.5em; text-align:center;">Detective's Guide</h2>
+          
+          <p>During your investigation:<br>
+          • Use <b>[Evidence]</b> to uncover vital clues.<br>
+          • Use <b>[Character]</b> to interrogate key figures.<br>
+          • Use <b>[Location]</b> to inspect relevant scenes.<br>
+          • Use <b>[Action]</b> to flex your detective prowess.</p>
+          
+          <p style="margin-top:1em;">When you've gathered enough leads:<br>
+          • Insert <b>[Reveal]</b> to open the trial.<br>
+          • Choose your <b>[Choice]</b> to expose the false testimony.</p>
+          
+          <p style="margin-top:1em;">Press Reset button anytime to restart and return to standby screen.</p>
+
+        </div>`
+      },
+      {
+        img: 'intro 3.png',
+        html: `<div class="case-intro" style="text-align:left; padding:0 10%;">
+          <h2 style="margin-bottom:1.5em; text-align:center;">TOP SECRET DEVICE:<br>Roulettective</h2>
+          
+          <p><b>Roulettective</b> is a Mastermind in MAD.<br>
+          It helps you <b>COLLECT</b> and <b>ASSOCIATE</b> fragments of truth.</p>
+          
+          <p style="margin-top:1em;">When it flashes a new insight in <b>[LIGHT]</b>,<br>
+          retrace your steps to unveil <b>HIDDEN EVIDENCE</b>.</p>
+          
+          <p style="margin-top:2em;">Work alongside <i>Roulettective</i>—see what others cannot.</p>
+          
+          <p style="margin-top:2em;"><b>Press the Red Reset button to continue to standby screen</b></p>
+        </div>`
+      }
+    ];
+    const idx = gameState.introPageIndex;
+    // 为case-card添加intro模式类
+    elements.caseCard.classList.add('intro-mode-active');
+    // Set image (left)
+    elements.cardImage.style.display = 'block';
+    elements.cardImage.innerHTML = `<div class="intro-mode-container"><img src='${introData[idx].img}' alt='Intro Slide ${idx+1}'></div>`;
+    // Hide text on left
+    elements.cardContent.className = 'card-content intro-mode';
+    elements.cardContent.innerHTML = '';
+    // Hide reveal panel
+    elements.revealPanel.classList.remove('active');
+    // Set indicator - 添加导航信息
+    elements.slideIndicator.textContent = `INTRO ${idx+1}/3${navigationState.gameStarted ? " | INVESTIGATION ONGOING" : ""}`;
+    // Hide insight badge
+    elements.insightBadge.classList.remove('visible');
+    // Journal (right): show intro text only
+    elements.slideHistory.innerHTML = introData[idx].html;
+    return;
+  } else {
+    // 移除intro模式类
+    elements.caseCard.classList.remove('intro-mode-active');
+  }
+  
+  console.log(`In updateUI, after intro check, introPageIndex: ${gameState.introPageIndex}`);
+  
   // Update card content
   if (gameState.currentIndex >= 0 && gameState.currentIndex < gameState.content.length) {
     // Special handling for Reveal card format
@@ -1086,38 +1110,30 @@ function updateUI() {
         elements.cardContent.innerHTML = `<p>${content.replace(/\n/g, '<br>')}</p>`;
       }
     }
-    // 更新图片显示
+    // 更新图片显示 - 使用新的统一格式
     if (gameState.images[gameState.currentIndex]) {
       elements.cardImage.style.display = 'block';
-      const img = elements.cardImage.querySelector('img');
-      if (img) {
-        img.src = gameState.images[gameState.currentIndex];
-      } else {
-        const newImg = new Image();
-        newImg.src = gameState.images[gameState.currentIndex];
-        newImg.alt = "Generated crime scene image";
-        elements.cardImage.innerHTML = '';
-        elements.cardImage.appendChild(newImg);
-      }
+      // 使用updateImageDisplay函数来统一图片显示格式
+      updateImageDisplay(gameState.currentIndex);
     } else {
       elements.cardImage.style.display = 'none';
     }
     // Update card indicator
     elements.slideIndicator.textContent = 
-      `${gameState.slides[gameState.currentIndex]} ${gameState.currentIndex + 1}/${gameState.slides.length}`;
+      `${gameState.slides[gameState.currentIndex]} ${gameState.currentIndex + 1}/${gameState.slides.length}${navigationState.introVisited ? " | INTRO AVAILABLE" : ""}`;
     // Add updated indicator if needed
     if (gameState.modifiedSlides.has(gameState.currentIndex)) {
       elements.slideIndicator.textContent += " ★";
     }
   } else {
-    // No cards yet
-    elements.cardContent.innerHTML = `
-      <p>Welcome to the Layered Reasoning Mystery Game.</p>
-      <p>Press <kbd>M</kbd> to start a new investigation.</p>
-      <p>Each mystery contains hidden layers of truth that will be revealed as your investigation deepens.</p>`;
-    elements.slideIndicator.textContent = "Welcome";
+    // No cards yet: do not show any welcome/standby page
+    elements.cardContent.className = 'card-content';
+    elements.cardContent.innerHTML = '';
+    elements.slideIndicator.textContent = navigationState.introVisited ? 'INTRO AVAILABLE' : '';
     elements.revealPanel.classList.remove('active');
     elements.cardImage.style.display = 'none';
+    // Journal (right): clear
+    elements.slideHistory.innerHTML = '';
   }
   // Update instruction bar based on game phase
   updateInstructionBar();
@@ -1129,20 +1145,16 @@ function updateUI() {
 
 // Update button labels to English
 function updateButtonLabels() {
-  if (elements.mysteryBtn) elements.mysteryBtn.innerHTML = 'M<span>Mystery</span>';
   if (elements.evidenceBtn) elements.evidenceBtn.innerHTML = 'E<span>Evidence</span>';
   if (elements.characterBtn) elements.characterBtn.innerHTML = 'C<span>Character</span>';
   if (elements.locationBtn) elements.locationBtn.innerHTML = 'L<span>Location</span>';
   if (elements.actionBtn) elements.actionBtn.innerHTML = 'A<span>Action</span>';
-  if (elements.revealBtn) elements.revealBtn.innerHTML = 'R<span>Reveal</span>';
+  if (elements.revealBtn) elements.revealBtn.innerHTML = 'V<span>Reveal</span>';
+  if (elements.restartBtn) elements.restartBtn.innerHTML = 'R<span>Restart</span>';
   
   if (elements.backBtn) elements.backBtn.innerHTML = '<span>⯇</span>Back (B)';
   if (elements.forwardBtn) elements.forwardBtn.innerHTML = 'Forward (F)<span>⯈</span>';
   if (elements.returnBtn) elements.returnBtn.innerHTML = '<span>⟲</span>Return (T)';
-  
-  // Update depth indicator
-  // const depthLabel = document.querySelector('.depth-label');
-  // if (depthLabel) depthLabel.textContent = 'Insight Depth:';
   
   // Update insight badge
   if (elements.insightBadge) elements.insightBadge.textContent = 'New Insight';
@@ -1153,31 +1165,61 @@ function updateInstructionBar() {
   // Skip if loading
   if (gameState.isLoading) return;
   
+  // 如果在待机页面
+  if (gameState.isStandbyPage) {
+    elements.instructionBar.textContent = "Press F to start a new mystery or B to view introduction";
+    return;
+  }
+  
+  // 如果在intro模式
+  if (gameState.introPageIndex !== null) {
+    // 修改intro页面的指示
+    if (gameState.introPageIndex === 0) {
+      elements.instructionBar.textContent = "Press B to see next introduction page or F to return to standby screen.";
+    } else if (gameState.introPageIndex === 2) {
+      elements.instructionBar.textContent = "Press F to see previous introduction page.";
+    } else {
+      elements.instructionBar.textContent = "Press B to see next introduction page or F to see previous page.";
+    }
+    return;
+  }
+  
+  // 如果在游戏中，添加Restart提示
+  let baseInstructions = "";
+  
+  // 正常游戏中的指示
   switch(gameState.phase) {
     case "initial":
-      elements.instructionBar.textContent = "Press M key to start a new mystery investigation.";
+      baseInstructions = "Press F to start a new mystery investigation.";
       break;
       
     case "investigating":
       if (gameState.modifiedSlides.has(gameState.currentIndex)) {
-        elements.instructionBar.textContent = "This content has been updated with new insights.";
+        baseInstructions = "This content has been updated with new insights.";
       } else if (gameState.slides.length < CONFIG.minSlidesBeforeReveal) {
-        elements.instructionBar.textContent = 
+        baseInstructions = 
           `Add more cards (E/C/L/A) to investigate. Need ${CONFIG.minSlidesBeforeReveal - gameState.slides.length} more cards before reveal.`;
       } else {
-        elements.instructionBar.textContent = 
-          "Add cards to investigate (E/C/L/A). Navigate with F/B. Press R for reveal when ready.";
+        baseInstructions = 
+          "Add cards to investigate (E/C/L/A). Navigate with F/B. Press V for reveal when ready.";
       }
       break;
       
     case "reveal":
-      elements.instructionBar.textContent = "Which theory is false? Select a theory number (1-5).";
+      baseInstructions = "Which theory is false? Select a theory number (1-5).";
       break;
       
     case "conclusion":
-      elements.instructionBar.textContent = "Mystery solved. Press M to start a new investigation.";
+      baseInstructions = "Mystery solved. Press R to restart and return to standby screen.";
       break;
   }
+  
+  // 添加Restart提示，除了在结论阶段
+  if (gameState.phase !== "conclusion") {
+    baseInstructions += " Press R to restart and return to standby screen.";
+  }
+  
+  elements.instructionBar.textContent = baseInstructions;
 }
 
 // Update phase indicator
@@ -1302,6 +1344,9 @@ function resetGameState() {
   // Keep previous mysteries to ensure uniqueness
   const prevMysteries = [...gameState.previousMysteries];
   
+  // 保存当前的导航状态
+  const currentNavigationState = { ...navigationState };
+  
   // Reset state
   gameState = {
     slides: [],
@@ -1330,16 +1375,19 @@ function resetGameState() {
     pendingAssociationIndex: undefined,
     // 重置音乐状态
     isMusicPlaying: false,
-    // 重置缓存状态
-    cacheStatus: {
-      isInitialized: false,
-      lastSync: null,
-      backgroundSyncTimer: null
-    }
+
+    // ===== MODIFIED: intro page index =====
+    introPageIndex: null,       // null for normal game, 0/1/2 for intro pages
+    // ===== NEW: standby page flag =====
+    isStandbyPage: false        // Flag to indicate if we're on the standby page
   };
   
-  // 停止背景音乐
-  stopBackgroundMusic();
+  // 恢复导航状态
+  navigationState = currentNavigationState;
+  
+  // 在开始新游戏时确保关闭待机页面音乐
+  stopStandbyMusic();
+
   
   // ======= 20250511 - Clear image container on reset
   // Reset UI elements
@@ -1389,6 +1437,63 @@ Guidelines:
   return response.choices[0].message.content.trim();
 }
 
+// ======= 20250511 - Updated image display function with debugging
+function updateImageDisplay(index) {
+  console.log(`Updating image display for index: ${index}`);
+  console.log(`Images array:`, gameState.images);
+  console.log(`Image at index:`, gameState.images[index]);
+  
+  const imageContainer = document.getElementById('card-image');
+  console.log(`Image container:`, imageContainer);
+  
+  if (gameState.images[index]) {
+    console.log("Preparing to display image...");
+    
+    // Clear container first
+    imageContainer.innerHTML = '';
+    
+    // 使用与introMode类似的包装容器来确保图片居中显示
+    const wrapper = document.createElement('div');
+    wrapper.className = 'image-wrapper';
+    wrapper.style.display = 'flex';
+    wrapper.style.justifyContent = 'center';
+    wrapper.style.alignItems = 'center';
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+    
+    // Create image element
+    const img = new Image();
+    img.onload = () => {
+      console.log("Image loaded successfully");
+    };
+    img.onerror = () => {
+      console.error("Image failed to load");
+    };
+    
+    img.src = gameState.images[index];
+    img.alt = "Generated crime scene image";
+    img.style.maxWidth = '90%';
+    img.style.maxHeight = '80vh';
+    img.style.objectFit = 'contain';
+    img.style.borderRadius = '6px';
+    img.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.5)';
+    img.style.margin = '0 auto';
+    img.style.display = 'block';
+    
+    // Add to wrapper then to container
+    wrapper.appendChild(img);
+    imageContainer.appendChild(wrapper);
+    imageContainer.style.display = 'block';
+    
+    console.log("Image element added to DOM");
+  } else {
+    console.log("No image found, hiding container");
+    imageContainer.style.display = 'none';
+  }
+  
+  console.log(`Image display update completed`);
+}
+
 // ======2025511update: generateImage先AI精炼prompt再喂给DALL·E
 async function generateImage(prompt, index) {
   try {
@@ -1396,8 +1501,15 @@ async function generateImage(prompt, index) {
     const shortPrompt = await summarizeForDalle(prompt);
     // ======2025511update: 强制截断到300字符以内
     const safeShortPrompt = shortPrompt.slice(0, 300).trim();
-    // 再走原有流程
-    const imagePrompt = enhancePromptForDalle(safeShortPrompt);
+    // 检查当前slide类型
+    let imagePrompt;
+    if (gameState.slides && gameState.slides[index] === "Character") {
+      // Character卡片，生成肖像风格prompt
+      imagePrompt = `A portrait of ${safeShortPrompt}, vintage 1940s film noir style, black and white, criminal scene, dramatic lighting, high contrast, grainy texture, cinematic composition`;
+    } else {
+      // 其他卡片类型，保持原有风格
+      imagePrompt = enhancePromptForDalle(safeShortPrompt);
+    }
     console.log(`Enhanced DALL-E prompt: ${imagePrompt}`);
 
     // 使用请求控制来调用DALL-E API
@@ -1421,8 +1533,10 @@ async function generateImage(prompt, index) {
     // Store image URL
     gameState.images[index] = imageUrl;
     
-    // Update UI to display image
-    updateImageDisplay(index);
+    // 直接更新当前显示的图片
+    if (gameState.currentIndex === index) {
+      updateImageDisplay(index);
+    }
     
   } catch (error) {
     console.error("Generate image error:", error);
@@ -1480,59 +1594,35 @@ function filterSensitiveWords(text) {
   return filtered;
 }
 
-// ======= 20250511 - Updated image display function with debugging
-function updateImageDisplay(index) {
-  console.log(`Updating image display for index: ${index}`);
-  console.log(`Images array:`, gameState.images);
-  console.log(`Image at index:`, gameState.images[index]);
-  
-  const imageContainer = document.getElementById('card-image');
-  console.log(`Image container:`, imageContainer);
-  
-  if (gameState.images[index]) {
-    console.log("Preparing to display image...");
-    
-    // Clear container first
-    imageContainer.innerHTML = '';
-    
-    // Create image element
-    const img = new Image();
-    img.onload = () => {
-      console.log("Image loaded successfully");
-    };
-    img.onerror = () => {
-      console.error("Image failed to load");
-      // 显示占位图
-      imageContainer.innerHTML = '<div class="placeholder" style="width:100%;height:300px;display:flex;align-items:center;justify-content:center;background:#222;color:#aaa;font-size:1.2em;">Image unavailable</div>';
-    };
-    
-    img.src = gameState.images[index];
-    img.alt = "Generated crime scene image";
-    
-    // Add to container
-    imageContainer.appendChild(img);
-    imageContainer.style.display = 'block';
-    
-    console.log("Image element added to DOM");
-  } else {
-    // 显示占位图
-    imageContainer.innerHTML = '<div class="placeholder" style="width:100%;height:300px;display:flex;align-items:center;justify-content:center;background:#222;color:#aaa;font-size:1.2em;">Image unavailable</div>';
-    imageContainer.style.display = 'block';
-    console.log("No image found, showing placeholder");
-  }
-  
-  console.log(`Image display update completed`);
-}
 
 // ======2025511update: navigateBack/navigateForward只在翻到pendingAssociationIndex时才更新内容和熄灭红灯
 async function navigateBack() {
   if (gameState.isLoading) return;
+  
+  // 如果在游戏中且当前是第一页，则回到待机页面
+  if (!gameState.isStandbyPage && gameState.introPageIndex === null && gameState.currentIndex === 0 && navigationState.standbyActive) {
+    gameState.isStandbyPage = true;
+    playStandbyMusic();
+    updateUI();
+    elements.cardContent.classList.add('transition');
+    setTimeout(() => {
+      elements.cardContent.classList.remove('transition');
+    }, 400);
+    return;
+  }
+  
+  // 正常游戏内导航
   if (gameState.slides.length === 0) return;
   if (gameState.currentIndex > 0) {
+    // 如果我们从当前最新的slide往回看，标记需要忽略下一次slide请求
+    if (gameState.currentIndex === gameState.slides.length - 1) {
+      navigationState.ignoreNextSlideRequest = true;
+    }
+    
     gameState.currentIndex--;
     // 检查是否翻到待更新slide
     if (gameState.pendingAssociationIndex !== undefined && gameState.currentIndex === gameState.pendingAssociationIndex) {
-      setLoading(true, "Generating new insight...");
+      setLoading(true, "Connecting Case Elements");
       const association = gameState.associationTargets.find(assoc => assoc.targetIndex === gameState.currentIndex);
       if (association) {
         await updateSlideWithAssociation(association);
@@ -1553,14 +1643,35 @@ async function navigateBack() {
   }
 }
 
+
+// 修改navigateForward函数，从待机页面直接开始新游戏
+
 async function navigateForward() {
   if (gameState.isLoading) return;
+  
+  // 如果在待机页面，直接开始新游戏
+  if (gameState.isStandbyPage) {
+    gameState.isStandbyPage = false;
+    stopStandbyMusic();
+    gameState.introPageIndex = null;
+    updateUI();
+    createMysterySlide();
+    return;
+  }
+  
+  // 正常游戏内导航
   if (gameState.slides.length === 0) return;
   if (gameState.currentIndex < gameState.slides.length - 1) {
     gameState.currentIndex++;
+    
+    // 如果导航到了最新的slide，标记需要忽略下一次slide请求
+    if (gameState.currentIndex === gameState.slides.length - 1) {
+      navigationState.ignoreNextSlideRequest = true;
+    }
+    
     // 检查是否翻到待更新slide
     if (gameState.pendingAssociationIndex !== undefined && gameState.currentIndex === gameState.pendingAssociationIndex) {
-      setLoading(true, "Generating new insight...");
+      setLoading(true, "Connecting Case Elements");
       const association = gameState.associationTargets.find(assoc => assoc.targetIndex === gameState.currentIndex);
       if (association) {
         await updateSlideWithAssociation(association);
@@ -1580,6 +1691,36 @@ async function navigateForward() {
     }, 400);
   }
 }
+
+
+// 恢复navigateReturn函数
+async function navigateReturn() {
+  if (gameState.isLoading) return;
+  if (gameState.insightLevel <= 0) {
+    elements.instructionBar.textContent = "No active connections to process.";
+    return;
+  }
+  setLoading(true, "Analyzing Connection Patterns");
+  try {
+    const targetIndex = gameState.insightChain.pop();
+    gameState.insightLevel--;
+    if (gameState.insightLevel === 0) {
+      const association = gameState.associationTargets.find(assoc => assoc.targetIndex === targetIndex);
+      if (association) {
+        await updateSlideWithAssociation(association);
+      }
+    }
+    gameState.currentIndex = targetIndex;
+    updateUI();
+    updateSlideHistory();
+    setLoading(false);
+  } catch (error) {
+    console.error("Return from insight chain error:", error);
+    showError(`Process insight error: ${error.message}`);
+    setLoading(false);
+  }
+}
+
 
 // ======2025511update: enterInsightChain时记录pendingAssociationIndex并亮红灯
 function enterInsightChain(targetIndex) {
@@ -1589,122 +1730,28 @@ function enterInsightChain(targetIndex) {
   if (elements.insightLight) elements.insightLight.classList.add('active');
 }
 
-// Start background sync timer
-function startBackgroundSync() {
-  if (gameState.cacheStatus.backgroundSyncTimer) {
-    clearInterval(gameState.cacheStatus.backgroundSyncTimer);
-  }
-  
-  gameState.cacheStatus.backgroundSyncTimer = setInterval(async () => {
-    if (!gameState.cacheStatus.isInitialized) return;
-    
-    try {
-      // Check if any card type needs refill
-      const needsRefill = ['evidence', 'characters', 'locations', 'actions']
-        .some(type => ContentCache.needsRefill(type));
-      
-      if (needsRefill && !BackgroundGenerator.isRunning) {
-        await BackgroundGenerator.start();
-      }
-    } catch (error) {
-      console.error('Background sync error:', error);
-    }
-  }, CONFIG.cacheConfig.backgroundSyncInterval);
-}
 
-// Enhanced Request Control Module with better rate limiting
-const RequestControl = {
-  queue: [],
-  activeRequests: 0,
-  lastRequestTime: 0,
+// 添加重启游戏功能
+function restartGame() {
+  if (gameState.isLoading) return;
   
-  // Configuration
-  maxConcurrentRequests: 1, // Reduced from 2 to 1 to be more conservative
-  minRequestInterval: 2000,  // Increased from 20000ms to 2000ms (still limiting, but more realistic)
+  // 如果已经在待机页面，不需要任何操作
+  if (gameState.isStandbyPage) return;
   
-  // Enhanced queue system
-  async addToQueue(requestFn, priority = 0) {
-    return new Promise((resolve, reject) => {
-      const request = {
-        fn: requestFn,
-        resolve,
-        reject,
-        priority,
-        addedTime: Date.now()
-      };
-      
-      // Insert into queue based on priority
-      const index = this.queue.findIndex(item => item.priority < priority);
-      if (index === -1) {
-        this.queue.push(request);
-      } else {
-        this.queue.splice(index, 0, request);
-      }
-      
-      console.log(`Added request to queue. Queue length: ${this.queue.length}`);
-      this.processQueue();
-    });
-  },
+  // 停止背景音乐
+  stopBackgroundMusic();
   
-  // Process the next request in queue
-  async processQueue() {
-    // Exit if already at max concurrent requests
-    if (this.activeRequests >= this.maxConcurrentRequests) {
-      console.log(`Already at max concurrent requests (${this.activeRequests}). Waiting.`);
-      return;
-    }
-    
-    // Exit if queue is empty
-    if (this.queue.length === 0) {
-      return;
-    }
-    
-    const now = Date.now();
-    const timeSinceLastRequest = now - this.lastRequestTime;
-    
-    // Check if we need to wait before processing the next request
-    if (timeSinceLastRequest < this.minRequestInterval) {
-      console.log(`Rate limiting: waiting ${this.minRequestInterval - timeSinceLastRequest}ms before next request`);
-      setTimeout(() => this.processQueue(), this.minRequestInterval - timeSinceLastRequest);
-      return;
-    }
-    
-    // Get the next request with highest priority
-    const request = this.queue.shift();
-    this.activeRequests++;
-    this.lastRequestTime = now;
-    
-    console.log(`Processing request. Queue remaining: ${this.queue.length}`);
-    
-    try {
-      const result = await request.fn();
-      request.resolve(result);
-    } catch (error) {
-      console.error('Request failed:', error);
-      
-      // Special handling for rate limit errors
-      if (error.status === 429 || (error.response && error.response.status === 429)) {
-        console.log('Rate limit error detected. Adding back to queue with delay.');
-        // Wait 5 seconds and try again with lower priority
-        setTimeout(() => {
-          this.addToQueue(request.fn, request.priority - 1);
-        }, 5000);
-      } else {
-        request.reject(error);
-      }
-    } finally {
-      this.activeRequests--;
-      // Process next request with a small delay to ensure we're not hammering the API
-      setTimeout(() => this.processQueue(), 100);
-    }
-  },
+  // 重置游戏状态
+  resetGameState();
   
-  // Reset request control state
-  reset() {
-    this.queue = [];
-    this.activeRequests = 0;
-    this.lastRequestTime = 0;
-    console.log('Request control system reset');
-  }
-};
+  // 进入待机页面
+  gameState.isStandbyPage = true;
+  navigationState.standbyActive = true;
+  
+  // 播放待机页面音乐
+  playStandbyMusic();
+  
+  // 更新UI
+  updateUI();
+}
 
