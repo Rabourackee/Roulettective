@@ -23,7 +23,9 @@ const CONFIG = {
   imageStyle: "vintage film noir style, black and white, criminal scene, dramatic lighting, high contrast, grainy texture, cinematic composition", // DALL-E图片风格
   imageSize: "1024x1024",      // 图片尺寸
   // 添加音乐配置
+
   musicVolume: 0.5            // 音乐音量
+
 };
 
 // Game state
@@ -54,6 +56,7 @@ let gameState = {
   pendingAssociationIndex: undefined,
   // 添加音乐状态
   isMusicPlaying: false,     // 音乐播放状态
+
   // ===== MODIFIED: intro page index =====
   introPageIndex: null,      // null for normal game, 0/1/2 for intro pages
   // ===== NEW: standby page flag =====
@@ -67,6 +70,7 @@ let navigationState = {
   gameStarted: false,   // 游戏是否已开始
   standbyActive: true,   // 是否已激活待机页面
   ignoreNextSlideRequest: false  // 是否忽略下一次slide请求
+
 };
 
 // Initialize OpenAI
@@ -86,6 +90,7 @@ function playBackgroundMusic() {
     gameState.isMusicPlaying = true;
   }
 }
+
 
 // 播放待机页面音乐
 function playStandbyMusic() {
@@ -183,6 +188,9 @@ async function setup() {
       dangerouslyAllowBrowser: true 
     });
     
+    // Initialize ContentCache
+    ContentCache.reset();
+    
     // Attach event listeners
     attachEventListeners();
     
@@ -192,6 +200,9 @@ async function setup() {
     
     // Set up UI
     updateUI();
+    
+    // Start background sync timer
+    startBackgroundSync();
     
     // Log successful initialization
     console.log("Layered Reasoning Mystery Game initialized successfully");
@@ -382,8 +393,9 @@ async function createMysterySlide() {
   setLoading(true, "Opening New Case File");
   
   try {
-    // Reset game state
+    // Reset game state and cache
     resetGameState();
+
     console.log(`After resetGameState, introPageIndex: ${gameState.introPageIndex}`);
     
     // 确保introPageIndex为null，这样不会回到介绍页面
@@ -391,6 +403,7 @@ async function createMysterySlide() {
     // 标记游戏已开始
     navigationState.gameStarted = true;
     console.log(`After explicit set, introPageIndex: ${gameState.introPageIndex}`);
+
     
     // 开始播放背景音乐
     playBackgroundMusic();
@@ -419,6 +432,16 @@ async function createMysterySlide() {
     const mysteryIdentifier = extractMysteryIdentifier(mysteryContent);
     gameState.previousMysteries.push(mysteryIdentifier);
     
+    // Generate mystery image
+    const imageUrl = await BackgroundGenerator.generateImage(mysteryContent);
+    
+    // Store in cache
+    ContentCache.mystery = {
+      content: mysteryContent,
+      imageUrl,
+      type: 'Mystery'
+    };
+    
     // Add to game state
     gameState.slides.push("Mystery");
     gameState.content.push(mysteryContent);
@@ -426,8 +449,16 @@ async function createMysterySlide() {
     gameState.currentIndex = 0;
     gameState.phase = "investigating";
     
-    // 生成谜题图片
-    await generateImage(mysteryContent, gameState.currentIndex);
+    // Store image URL
+    if (imageUrl) {
+      gameState.images[0] = imageUrl;
+    }
+    
+    // Start background generation
+    gameState.cacheStatus.isInitialized = true;
+    BackgroundGenerator.start().catch(error => {
+      console.error('Background generation error:', error);
+    });
     
     console.log(`Before updateUI, introPageIndex: ${gameState.introPageIndex}`);
     
@@ -545,26 +576,11 @@ async function createSlide(slideType) {
   setLoading(true, loadingMessage);
   
   try {
-    // Generate system prompt
-    const systemPrompt = createSlideSystemPrompt(slideType);
+    let slideContent;
+    let imageUrl;
     
-    // Prepare context of existing cards
-    const messages = [{ role: "system", content: systemPrompt }];
-    
-    // Add all previous cards as context
-    for (let i = 0; i < gameState.slides.length; i++) {
-      messages.push(
-        { role: "user", content: `${gameState.slides[i]} Card:` },
-        { role: "assistant", content: gameState.content[i] }
-      );
-    }
-    
-    // Add specific request for this card type
-    messages.push({ role: "user", content: `Generate a ${slideType} card for this mystery.` });
-    
-    // Special handling for Reveal card
     if (slideType === "Reveal") {
-      // Ensure we have enough cards
+      // Special handling for Reveal card
       if (gameState.slides.length < CONFIG.minSlidesBeforeReveal) {
         elements.instructionBar.textContent = 
           `Need more investigation before reveal. Add at least ${CONFIG.minSlidesBeforeReveal - gameState.slides.length} more cards.`;
@@ -572,28 +588,21 @@ async function createSlide(slideType) {
         return;
       }
       
-      // Special system reminder for Reveal card
-      messages.push({
-        role: "system",
-        content: "Remember to create exactly 5 theories, 4 true and 1 false. Clearly number them as Theory #1, Theory #2, etc."
+      // Generate reveal content
+      const systemPrompt = createSlideSystemPrompt(slideType);
+      const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Generate a ${slideType} card for this mystery.` }
+      ];
+      
+      const response = await openai.chat.completions.create({
+        model: CONFIG.apiModel,
+        messages: messages
       });
       
-      // Update game phase
-      gameState.phase = "reveal";
-    }
-    
-    // Call API to generate content
-    const response = await openai.chat.completions.create({
-      model: CONFIG.apiModel,
-      messages: messages
-    });
-    
-    // Get card content
-    const slideContent = response.choices[0].message.content;
-    
-    // For Reveal card, determine which theory is false
-    if (slideType === "Reveal") {
-      // Ask which theory is false
+      slideContent = response.choices[0].message.content;
+      
+      // Determine which theory is false
       const falseTheoryMessages = [
         ...messages,
         { role: "assistant", content: slideContent },
@@ -611,6 +620,20 @@ async function createSlide(slideType) {
       // Store correct answer
       gameState.correctAnswer = falseTheoryNumber;
       console.log(`Theory #${falseTheoryNumber} is incorrect`);
+      
+    } else {
+      // Get card from cache
+      const cachedCard = ContentCache.getCard(slideType);
+      
+      if (cachedCard) {
+        slideContent = cachedCard.content;
+        imageUrl = cachedCard.imageUrl;
+      } else {
+        // If no cached card, generate one
+        const card = await BackgroundGenerator.generateSingleCard(slideType);
+        slideContent = card.content;
+        imageUrl = card.imageUrl;
+      }
     }
     
     // Add to game state
@@ -619,13 +642,26 @@ async function createSlide(slideType) {
     gameState.originalContent.push(slideContent);
     gameState.currentIndex = gameState.slides.length - 1;
     
-    // 只生成一次图片，且Reveal卡片不生成图片
-    if (slideType !== "Reveal") {
-      await generateImage(slideContent, gameState.currentIndex);
+    // Store image URL
+    if (imageUrl) {
+      gameState.images[gameState.currentIndex] = imageUrl;
     }
-    // 修改：检查新卡片和现有卡片之间的强关联
-    if (slideType === "Evidence" || slideType === "Character" || slideType === "Action" || slideType === "Location") {
-      await checkForStrongAssociations(gameState.currentIndex);
+    
+    // Check for associations
+    if (slideType !== "Reveal") {
+      const associations = ContentCache.associations.filter(assoc => 
+        assoc.sourceCard.type === slideType || assoc.targetCard.type === slideType
+      );
+      
+      if (associations.length > 0) {
+        const association = associations[0];
+        gameState.associationTargets.push({
+          sourceIndex: gameState.currentIndex,
+          targetIndex: -1, // Will be set when navigating
+          reason: association.reason
+        });
+        enterInsightChain(-1); // Will be set when navigating
+      }
     }
     
     // Update UI
@@ -753,25 +789,54 @@ async function updateSlideWithAssociation(association) {
   try {
     const targetIndex = association.targetIndex;
     const sourceIndex = association.sourceIndex;
-    const targetSlideType = gameState.slides[targetIndex];
-    const sourceSlideType = gameState.slides[sourceIndex];
-    const systemPrompt = `You are updating a card in a mystery game based on a strong logical connection.\nA new ${sourceSlideType} card has revealed information that directly connects to this ${targetSlideType} card.\nThe connection is: ${association.reason}\nGuidelines for the update:\n- Start with \"New insight:\" to indicate this is updated information\n- If the connection is 'witness recants', update the witness statement accordingly\n- If the connection is 'evidence upgraded', add new information to the evidence\n- If the connection is 'evidence destroyed', state that the evidence is no longer available or has been tampered with\n- If the connection is 'location triggers recall', update the witness or evidence with the new recalled information\n- Focus specifically on the logical connection between the cards\n- Keep the update to 1-2 sentences maximum\n- Be direct and clear about how this changes our understanding\n- The update should feel like an \"aha!\" moment that changes perspective`;
-    const messages = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `Original ${targetSlideType} content: ${gameState.originalContent[targetIndex]}` },
-      { role: "user", content: `New ${sourceSlideType} content that creates the connection: ${gameState.content[sourceIndex]}` },
-      { role: "user", content: `Update this ${targetSlideType} card based on the strong connection. Keep it very brief (1-2 sentences).` }
-    ];
-    const response = await openai.chat.completions.create({
-      model: CONFIG.apiModel,
-      messages: messages
-    });
-    const updatedContent = response.choices[0].message.content;
-    gameState.content[targetIndex] = updatedContent;
+    
+    // Get cached association if available
+    const cachedAssociation = ContentCache.associations.find(assoc => 
+      assoc.sourceCard.type === sourceIndex && 
+      assoc.targetCard.type === targetIndex
+    );
+    
+    if (cachedAssociation) {
+      // Use cached update
+      gameState.content[targetIndex] = cachedAssociation.updatedContent;
+    } else {
+      // Generate new update
+      const systemPrompt = `You are updating a card in a mystery game based on a strong logical connection.\nA new ${sourceIndex} card has revealed information that directly connects to this ${targetIndex} card.\nThe connection is: ${association.reason}\nGuidelines for the update:\n- Start with \"New insight:\" to indicate this is updated information\n- If the connection is 'witness recants', update the witness statement accordingly\n- If the connection is 'evidence upgraded', add new information to the evidence\n- If the connection is 'evidence destroyed', state that the evidence is no longer available or has been tampered with\n- If the connection is 'location triggers recall', update the witness or evidence with the new recalled information\n- Focus specifically on the logical connection between the cards\n- Keep the update to 1-2 sentences maximum\n- Be direct and clear about how this changes our understanding\n- The update should feel like an \"aha!\" moment that changes perspective`;
+      
+      const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Original ${targetIndex} content: ${gameState.originalContent[targetIndex]}` },
+        { role: "user", content: `New ${sourceIndex} content that creates the connection: ${gameState.content[sourceIndex]}` },
+        { role: "user", content: `Update this ${targetIndex} card based on the strong connection. Keep it very brief (1-2 sentences).` }
+      ];
+      
+      const response = await openai.chat.completions.create({
+        model: CONFIG.apiModel,
+        messages: messages
+      });
+      
+      const updatedContent = response.choices[0].message.content;
+      gameState.content[targetIndex] = updatedContent;
+      
+      // Cache the association update
+      ContentCache.associations.push({
+        sourceCard: { type: sourceIndex, content: gameState.content[sourceIndex] },
+        targetCard: { type: targetIndex, content: gameState.originalContent[targetIndex] },
+        updatedContent,
+        reason: association.reason
+      });
+    }
+    
     gameState.modifiedSlides.add(targetIndex);
-    await generateImage(updatedContent, targetIndex);
+    
+    // Update image if needed
+    const imageUrl = await BackgroundGenerator.generateImage(gameState.content[targetIndex]);
+    if (imageUrl) {
+      gameState.images[targetIndex] = imageUrl;
+    }
+    
     console.log(`Updated card ${targetIndex} based on connection with card ${sourceIndex}`);
-    // 不在这里刷新UI和熄灭红灯
+    
   } catch (error) {
     console.error(`Update card association error:`, error);
     gameState.content[association.targetIndex] = gameState.originalContent[association.targetIndex];
@@ -1310,6 +1375,7 @@ function resetGameState() {
     pendingAssociationIndex: undefined,
     // 重置音乐状态
     isMusicPlaying: false,
+
     // ===== MODIFIED: intro page index =====
     introPageIndex: null,       // null for normal game, 0/1/2 for intro pages
     // ===== NEW: standby page flag =====
@@ -1321,6 +1387,7 @@ function resetGameState() {
   
   // 在开始新游戏时确保关闭待机页面音乐
   stopStandbyMusic();
+
   
   // ======= 20250511 - Clear image container on reset
   // Reset UI elements
@@ -1347,11 +1414,18 @@ window.OPENAI_API_KEY = ""; // Set directly here if not using .env
 
 // Initialize game when DOM is loaded
 window.setup = setup;
-document.addEventListener('DOMContentLoaded', setup);
-
-// ======2025511update: summarizeForDalle，AI精炼图片prompt，死亡场景翻译为"倒在地上"
+document.addEventListener('DOMContentLoaded', setup);// ======2025511update: summarizeForDalle，AI精炼图片prompt，死亡场景翻译为"倒在地上"
 async function summarizeForDalle(longPrompt) {
-  const systemPrompt = "You are an expert at summarizing crime scene descriptions for image generation. Summarize the following text into a single, vivid, English prompt under 300 characters (including spaces), focusing only on the visual scene and atmosphere. If the scene involves a dead person, always describe them as 'lying on the ground' or 'lying on the floor'. Do not include any names, dialogue, or meta information.";
+  const systemPrompt = `You are an expert at summarizing crime scene descriptions for image generation. 
+Summarize the following text into a single, vivid, English prompt under 250 characters (including spaces).
+Focus only on the visual scene and atmosphere.
+Guidelines:
+- If someone is dead, describe them as "lying on the ground" or "lying on the floor"
+- Avoid any violent or sensitive words
+- Focus on visual elements like lighting, objects, and environment
+- Do not include any names, dialogue, or meta information
+- Keep it concise and descriptive`;
+
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: longPrompt }
@@ -1437,15 +1511,17 @@ async function generateImage(prompt, index) {
       imagePrompt = enhancePromptForDalle(safeShortPrompt);
     }
     console.log(`Enhanced DALL-E prompt: ${imagePrompt}`);
-    // Call DALL-E API to generate image
-    const response = await openai.images.generate({
-      model: "dall-e-3",
-      prompt: imagePrompt,
-      n: 1,
-      size: CONFIG.imageSize
+
+    // 使用请求控制来调用DALL-E API
+    const imageUrl = await RequestControl.addToQueue(async () => {
+      const response = await openai.images.generate({
+        model: "dall-e-3",
+        prompt: imagePrompt,
+        n: 1,
+        size: CONFIG.imageSize
+      });
+      return response.data[0].url;
     });
-    // Get image URL
-    const imageUrl = response.data[0].url;
     
     console.log(`Image generated successfully, URL: ${imageUrl}`);
     
@@ -1472,25 +1548,52 @@ async function generateImage(prompt, index) {
 function enhancePromptForDalle(prompt) {
   // 先过滤敏感词
   let safePrompt = filterSensitiveWords(prompt);
-  // 拼接风格关键词
-  let enhanced = `A vintage 1940s film noir mystery scene, black and white, dramatic lighting, high contrast, grainy texture. ${safePrompt}`;
-  return enhanced;
+  // 拼接风格关键词，使用更简洁的描述
+  let enhanced = `A vintage film noir scene, black and white, dramatic lighting. ${safePrompt}`;
+  // 确保总长度不超过250字符
+  return enhanced.slice(0, 250).trim();
 }
 
 // ======2025511update: enhancePromptForDalle直接拼接风格关键词，不再取前两句
 function filterSensitiveWords(text) {
-  const sensitiveWords = [
-    'blood', 'murder', 'weapon', 'dead', 'kill', 'stab', 'wound', 'corpse', 'body', 'death',
-    'suicide', 'hanged', 'strangled', 'gun', 'knife', 'shoot', 'shot', 'stabbed', 'killed',
-    'victim', 'crime', 'violence', 'injury', 'bullet', 'suffocate', 'poison', 'explosion'
-  ];
+  const sensitiveWordMap = {
+    'blood': 'mysterious stain',
+    'murder': 'incident',
+    'weapon': 'object',
+    'dead': 'lying on the ground',
+    'kill': 'incident',
+    'stab': 'wound',
+    'wound': 'injury',
+    'corpse': 'person lying on the ground',
+    'body': 'person',
+    'death': 'incident',
+    'suicide': 'incident',
+    'hanged': 'found',
+    'strangled': 'found',
+    'gun': 'object',
+    'knife': 'object',
+    'shoot': 'incident',
+    'shot': 'incident',
+    'stabbed': 'injured',
+    'killed': 'found',
+    'victim': 'person',
+    'crime': 'incident',
+    'violence': 'incident',
+    'injury': 'condition',
+    'bullet': 'object',
+    'suffocate': 'found',
+    'poison': 'substance',
+    'explosion': 'incident'
+  };
+
   let filtered = text;
-  sensitiveWords.forEach(word => {
-    const regex = new RegExp(word, 'gi');
-    filtered = filtered.replace(regex, 'mystery');
-  });
+  for (const [word, replacement] of Object.entries(sensitiveWordMap)) {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    filtered = filtered.replace(regex, replacement);
+  }
   return filtered;
 }
+
 
 // ======2025511update: navigateBack/navigateForward只在翻到pendingAssociationIndex时才更新内容和熄灭红灯
 async function navigateBack() {
@@ -1540,7 +1643,9 @@ async function navigateBack() {
   }
 }
 
+
 // 修改navigateForward函数，从待机页面直接开始新游戏
+
 async function navigateForward() {
   if (gameState.isLoading) return;
   
@@ -1587,6 +1692,7 @@ async function navigateForward() {
   }
 }
 
+
 // 恢复navigateReturn函数
 async function navigateReturn() {
   if (gameState.isLoading) return;
@@ -1615,6 +1721,7 @@ async function navigateReturn() {
   }
 }
 
+
 // ======2025511update: enterInsightChain时记录pendingAssociationIndex并亮红灯
 function enterInsightChain(targetIndex) {
   elements.instructionBar.textContent =
@@ -1622,6 +1729,7 @@ function enterInsightChain(targetIndex) {
   gameState.pendingAssociationIndex = targetIndex;
   if (elements.insightLight) elements.insightLight.classList.add('active');
 }
+
 
 // 添加重启游戏功能
 function restartGame() {
@@ -1646,3 +1754,4 @@ function restartGame() {
   // 更新UI
   updateUI();
 }
+
